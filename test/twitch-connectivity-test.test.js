@@ -24,9 +24,9 @@ const validTokenInfo = (extra = {}) => ({
   ...extra,
 });
 const mockResponse = (status, body) => ({ status, json: async () => body });
-const notification = ({ id = 'event-1', text = 'HeyGuys', chatterId = '300', channelId = '200' } = {}) => ({
+const notification = ({ id = 'event-1', text = 'Hey Guys', fragments = [], chatterId = '300', channelId = '200' } = {}) => ({
   metadata: { message_type: 'notification', subscription_type: 'channel.chat.message', message_id: id },
-  payload: { event: { broadcaster_user_id: channelId, chatter_user_id: chatterId, message: { text } } },
+  payload: { event: { broadcaster_user_id: channelId, chatter_user_id: chatterId, message: { text, fragments } } },
 });
 const quietLogger = () => ({ info() {}, warn() {}, error() {} });
 
@@ -37,7 +37,10 @@ class FakeWebSocket extends EventTarget {
     super();
     this.url = url;
     FakeWebSocket.latest = this;
-    queueMicrotask(() => this.dispatchEvent(new Event('open')));
+    queueMicrotask(() => {
+      this.dispatchEvent(new Event('open'));
+      this.deliver({ metadata: { message_type: 'session_welcome' }, payload: { session: { id: 'session-test' } } });
+    });
   }
 
   deliver(data) {
@@ -76,14 +79,14 @@ test('incomplete configuration fails safely and ARENA_ENABLED cannot be turned o
   assert.throws(() => loadConfig(validEnv({ ARENA_ENABLED: 'true' })), /requires ARENA_ENABLED=false/);
 });
 
-test('processor matches HeyGuys exactly after trimming whitespace', async () => {
+test('processor matches Hey Guys exactly after trimming whitespace', async () => {
   const config = loadConfig(validEnv({
     TWITCH_TEST_SEND_ENABLED: 'true',
     TWITCH_TEST_SEND_CONFIRM_CHANNEL_ID: '200',
   }));
   const sent = [];
   const process = createChatMessageProcessor({ config, sendMessage: async (message) => { sent.push(message); return { sent: true }; }, logger: quietLogger(), now: () => 10_000 });
-  assert.equal((await process(notification({ text: '  HeyGuys \n' }))).reason, 'sent');
+  assert.equal((await process(notification({ text: '  Hey Guys \n' }))).reason, 'sent');
   assert.deepEqual(sent, ['VoHiYo']);
 });
 
@@ -95,7 +98,55 @@ test('other messages do not trigger and matching is case-sensitive', async () =>
   let sends = 0;
   const process = createChatMessageProcessor({ config, sendMessage: async () => { sends += 1; return { sent: true }; }, logger: quietLogger(), now: () => 10_000 });
   assert.equal((await process(notification({ id: 'event-1', text: 'heyguys' }))).reason, 'no-match');
-  assert.equal((await process(notification({ id: 'event-2', text: 'HeyGuys!' }))).reason, 'no-match');
+  assert.equal((await process(notification({ id: 'event-2', text: 'HeyGuys' }))).reason, 'no-match');
+  assert.equal((await process(notification({ id: 'event-3', text: 'Hey Guys!' }))).reason, 'no-match');
+  assert.equal(sends, 0);
+});
+
+test('chat diagnostics log only text, fragment type/text, channel match, and matcher result', async () => {
+  const config = loadConfig(validEnv());
+  const logs = [];
+  const logger = { info: (message) => logs.push(message), warn() {}, error() {} };
+  const process = createChatMessageProcessor({ config, logger });
+
+  await process(notification({
+    text: 'HeyGuys',
+    fragments: [{ type: 'emote', text: 'HeyGuys', emote: { id: 'unlogged' } }],
+  }));
+
+  assert.deepEqual(JSON.parse(logs[0]), {
+    'event.message.text': 'HeyGuys',
+    'event.message.fragments': [{ type: 'emote', text: 'HeyGuys' }],
+    broadcasterMatchesConfiguredChannel: true,
+    matcherAccepts: false,
+  });
+  assert.equal(logs.length, 1);
+});
+
+test('a message from a different broadcaster is diagnosed and never sent', async () => {
+  const config = loadConfig(validEnv({
+    TWITCH_TEST_SEND_ENABLED: 'true',
+    TWITCH_TEST_SEND_CONFIRM_CHANNEL_ID: '200',
+  }));
+  const logs = [];
+  let sends = 0;
+  const logger = { info: (message) => logs.push(message), warn: (message) => logs.push(message), error() {} };
+  const process = createChatMessageProcessor({
+    config,
+    sendMessage: async () => { sends += 1; return { sent: true }; },
+    logger,
+  });
+
+  const result = await process(notification({ channelId: '1548437801' }));
+
+  assert.equal(result.reason, 'unexpected-channel');
+  assert.deepEqual(JSON.parse(logs[0]), {
+    'event.message.text': 'Hey Guys',
+    'event.message.fragments': [],
+    broadcasterMatchesConfiguredChannel: false,
+    matcherAccepts: true,
+  });
+  assert.equal(logs[1], 'Ignored chat notification for an unexpected channel.');
   assert.equal(sends, 0);
 });
 
@@ -232,8 +283,6 @@ test('isolated startup validates token, receives welcome, subscribes, and closes
     },
   });
   assert.equal(FakeWebSocket.latest.url, 'wss://eventsub.wss.twitch.tv/ws');
-  FakeWebSocket.latest.deliver({ metadata: { message_type: 'session_welcome' }, payload: { session: { id: 'session-test' } } });
-  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.length, 2);
   assert.equal((await client.close()), undefined);
 });

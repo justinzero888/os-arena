@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbace Sudoku Arena — Local Pilot</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.45 system-ui, sans-serif; color: #17202a; background: #f2f5f8; }
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    main { background: white; border: 1px solid #d6dde5; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 20px #10203012; }
+    h1 { margin-top: 0; } button, select { font: inherit; padding: .55rem .8rem; margin: .25rem; }
+    button { cursor: pointer; } .muted { color: #52616f; } .notice { background: #eef5ff; padding: .8rem; border-radius: 8px; }
+    .row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; } .hidden { display:none; }
+    .board { display: grid; grid-template-columns: repeat(9, 2.5rem); width: max-content; border: 2px solid #243547; margin: 1rem 0; }
+    .cell { box-sizing: border-box; width: 2.5rem; height: 2.5rem; display: grid; place-items: center; border: 1px solid #cbd3db; font-size: 1.15rem; }
+    .cell:nth-child(3n) { border-right: 2px solid #243547; } .cell:nth-child(9n) { border-right: 0; }
+    .cell:nth-child(n+19):nth-child(-n+27), .cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid #243547; }
+    input.cell { padding:0; text-align:center; } .given { background:#edf1f4; font-weight:700; }
+    .links { overflow-wrap:anywhere; } .status { font-weight: 650; } .preset-option { display:block; padding:.35rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Orbace Sudoku Arena</h1>
+    <p id="banner" class="notice">Local pilot. Guests join with a browser cookie; the cookie represents a browser, not a person. Session data is held in memory and clears when this server stops.</p>
+    <section id="home">
+      <p>Create a local host session. The host control capability stays in this browser as an HttpOnly cookie.</p>
+      <label for="defaultPreset">Host default if no one votes:</label>
+      <select id="defaultPreset"><option value="easy">Easy Sprint — 180 seconds</option><option value="medium">Medium Match — 300 seconds</option><option value="hard">Hard Survival — 480 seconds</option></select>
+      <button id="create">Create Arena</button>
+    </section>
+    <section id="session" class="hidden">
+      <p class="status" id="status"></p>
+      <p id="timer"></p>
+      <p id="preset"></p>
+      <div id="links" class="links"></div>
+      <div id="guest" class="hidden">
+        <p>You're in the crowd. No account needed. You may change your vote until the ballot closes.</p>
+        <form id="voteForm"></form>
+        <p id="voteStatus"></p>
+      </div>
+      <div id="host" class="hidden">
+        <p id="hostHint"></p>
+        <button id="start" class="hidden" disabled>Start round</button>
+        <div id="board" class="board" aria-label="Sudoku board"></div>
+        <button id="solve" class="hidden">Submit full solution</button>
+        <button id="rematch" class="hidden">Run it back</button>
+      </div>
+      <div id="result" class="notice hidden"></div>
+    </section>
+    <p id="error" role="alert"></p>
+  </main>
+  <script type="module" src="/arena.js"></script>
+</body>
+</html>

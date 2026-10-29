@@ -251,12 +251,27 @@ export function createChatMessageProcessor({
       || !event || typeof event !== 'object') {
       return { handled: false, reason: 'not-chat-message' };
     }
+    const text = typeof event.message?.text === 'string' ? event.message.text : null;
+    const fragments = Array.isArray(event.message?.fragments)
+      ? event.message.fragments.map((fragment) => ({
+        type: typeof fragment?.type === 'string' ? fragment.type : null,
+        text: typeof fragment?.text === 'string' ? fragment.text : null,
+      }))
+      : [];
+    const broadcasterMatchesConfiguredChannel = event.broadcaster_user_id === config.channelUserId;
+    const matcherAccepts = typeof text === 'string' && text.trim() === 'Hey Guys';
+    logger.info(JSON.stringify({
+      'event.message.text': text,
+      'event.message.fragments': fragments,
+      broadcasterMatchesConfiguredChannel,
+      matcherAccepts,
+    }));
     if (typeof messageId !== 'string' || !messageId) {
       logger.warn('Ignored chat notification without an EventSub message ID.');
       return { handled: false, reason: 'missing-message-id' };
     }
     if (seenMessageIds.has(messageId)) {
-      logger.info(`Ignored duplicate EventSub message id=${messageId}.`);
+      logger.info('Ignored duplicate EventSub chat notification.');
       return { handled: false, reason: 'duplicate' };
     }
     seenMessageIds.set(messageId, true);
@@ -264,27 +279,24 @@ export function createChatMessageProcessor({
       seenMessageIds.delete(seenMessageIds.keys().next().value);
     }
 
-    if (event.broadcaster_user_id !== config.channelUserId) {
-      logger.warn(`Ignored chat notification for an unexpected channel (message id=${messageId}).`);
+    if (!broadcasterMatchesConfiguredChannel) {
+      logger.warn('Ignored chat notification for an unexpected channel.');
       return { handled: false, reason: 'unexpected-channel' };
     }
     if (event.chatter_user_id === config.botUserId) {
-      logger.info(`Ignored bot-authored chat message id=${messageId}.`);
+      logger.info('Ignored bot-authored chat message.');
       return { handled: true, reason: 'bot-message' };
     }
 
-    const text = event.message?.text;
-    const matches = typeof text === 'string' && text.trim() === 'HeyGuys';
-    logger.info(`Received chat message id=${messageId}; trigger=${matches ? 'match' : 'no-match'}.`);
-    if (!matches) return { handled: true, reason: 'no-match' };
+    if (!matcherAccepts) return { handled: true, reason: 'no-match' };
     if (!config.sendEnabled) {
-      logger.info('HeyGuys trigger received; live reply skipped because TWITCH_TEST_SEND_ENABLED is false.');
+      logger.info('Hey Guys trigger received; live reply skipped because TWITCH_TEST_SEND_ENABLED is false.');
       return { handled: true, reason: 'send-disabled' };
     }
 
     const currentTime = now();
     if (lastSendAttempt !== null && currentTime - lastSendAttempt < cooldownMs) {
-      logger.warn(`HeyGuys trigger ignored by the ${cooldownMs}ms local send cooldown.`);
+      logger.warn(`Hey Guys trigger ignored by the ${cooldownMs}ms local send cooldown.`);
       return { handled: true, reason: 'rate-limited' };
     }
     lastSendAttempt = currentTime;
