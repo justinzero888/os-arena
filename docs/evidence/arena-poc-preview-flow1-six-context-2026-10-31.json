@@ -1,0 +1,116 @@
+{
+  "base": "https://orbace-arena-phase4-preview-44plnxqb1.vercel.app",
+  "startedAt": "2026-10-31T18:57:19.436Z",
+  "steps": [
+    {
+      "name": "host-signed-in-and-created",
+      "at": "2026-10-31T18:57:23.047Z",
+      "sessionId": "d92d3112-82cf-4cdf-ad05-01eeec3a4746"
+    },
+    {
+      "name": "anonymous-spectator",
+      "at": "2026-10-31T18:57:24.228Z",
+      "voteDisabled": true,
+      "signInVisible": true,
+      "hostHidden": true,
+      "bodyHasVercelLogin": false,
+      "message": "Sign in to vote."
+    },
+    {
+      "name": "host-sees-first-viewer",
+      "at": "2026-10-31T18:57:25.533Z",
+      "presence": "1 watching · 0 voters"
+    },
+    {
+      "name": "voter-1-signed-in",
+      "at": "2026-10-31T18:57:30.426Z",
+      "stashed": "/arena?session=d92d3112-82cf-4cdf-ad05-01eeec3a4746"
+    },
+    {
+      "name": "voter-2-signed-in",
+      "at": "2026-10-31T18:57:31.808Z",
+      "stashed": "/arena?session=d92d3112-82cf-4cdf-ad05-01eeec3a4746"
+    },
+    {
+      "name": "voter-3-signed-in",
+      "at": "2026-10-31T18:57:33.276Z",
+      "stashed": "/arena?session=d92d3112-82cf-4cdf-ad05-01eeec3a4746"
+    },
+    {
+      "name": "overlay-anonymous",
+      "at": "2026-10-31T18:57:34.595Z",
+      "state": "BALLOT_OPEN",
+      "voteHidden": true,
+      "hostHidden": true,
+      "bodyHasVercelLogin": false
+    },
+    {
+      "name": "host-sees-audience",
+      "at": "2026-10-31T18:57:41.802Z",
+      "presence": "5 watching · 0 voters"
+    },
+    {
+      "name": "three-votes-host-sees",
+      "at": "2026-10-31T18:57:48.630Z",
+      "presence": "5 watching · 3 voters",
+      "ballot": "3 audience vote(s) · closes 2:58:22 PM"
+    },
+    {
+      "name": "repeat-vote-stays-three",
+      "at": "2026-10-31T18:57:50.946Z",
+      "presence": "5 watching · 3 voters",
+      "ballot": "3 audience vote(s) · closes 2:58:22 PM"
+    },
+    {
+      "name": "start-clicked",
+      "at": "2026-10-31T18:57:55.653Z",
+      "attempts": 1
+    },
+    {
+      "name": "round-started",
+      "at": "2026-10-31T18:57:56.560Z"
+    },
+    {
+      "name": "zero-rendering-empty",
+      "at": "2026-10-31T18:57:56.615Z"
+    },
+    {
+      "name": "audience-live-sync",
+      "at": "2026-10-31T18:58:01.655Z",
+      "valueIndex1": 0,
+      "valueIndex2": 1
+    },
+    {
+      "name": "notes-mode",
+      "at": "2026-10-31T18:58:01.663Z",
+      "notesBefore": [
+        "1",
+        "2"
+      ],
+      "notesAfterToggle": [
+        "1"
+      ],
+      "cleared": true
+    },
+    {
+      "name": "result-converged",
+      "at": "2026-10-31T18:58:05.296Z",
+      "resultText": "Host wins — solved before the deadline.",
+      "anon": "Host wins — solved before the deadline.",
+      "overlay": "Host wins — solved before the deadline."
+    },
+    {
+      "name": "public-payload-private",
+      "at": "2026-10-31T18:58:05.978Z"
+    },
+    {
+      "name": "rematch",
+      "at": "2026-10-31T18:58:11.098Z",
+      "rematchId": "7bbfaabb-d093-4b94-b7a0-b3ac4461b690"
+    }
+  ],
+  "rateLimits": [],
+  "pageErrors": [],
+  "ok": true,
+  "finishedAt": "2026-10-31T18:58:11.098Z"
+}

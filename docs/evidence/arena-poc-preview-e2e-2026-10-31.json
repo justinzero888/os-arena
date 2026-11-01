@@ -1,0 +1,25 @@
+{
+  "base": "https://orbace-arena-phase4-preview-9rco6rvlk.vercel.app",
+  "startedAt": "2026-10-31T14:25:01.843Z",
+  "finishedAt": "2026-10-31T14:25:54.557Z",
+  "ok": true,
+  "steps": [
+    { "name": "signed-in", "at": "2026-10-31T14:25:07.139Z", "host": true, "voters": 3 },
+    { "name": "session-created", "at": "2026-10-31T14:25:08.022Z", "sessionId": "cb71d013-f815-4472-aeef-b45cf81a10f2" },
+    { "name": "three-distinct-votes", "at": "2026-10-31T14:25:13.950Z", "count": "3 audience vote(s)" },
+    { "name": "repeat-vote-updates", "at": "2026-10-31T14:25:15.609Z", "count": "3 audience vote(s)", "standardPressed": "true" },
+    { "name": "anonymous-watch-only", "at": "2026-10-31T14:25:16.786Z", "voteDisabled": true, "message": "Sign in to Orbace to vote.", "hostHidden": true, "canWatch": true },
+    { "name": "voter-cannot-host-ui", "at": "2026-10-31T14:25:16.787Z", "hostPanelHidden": true, "startDisabled": true },
+    { "name": "round-playing", "at": "2026-10-31T14:25:34.798Z", "state": "PLAYING", "audienceCellsDisabled": true, "hostControlsVisible": false },
+    { "name": "supply-matched", "at": "2026-10-31T14:25:37.235Z", "givensPrefix": "009000100005", "solutionMatched": true },
+    { "name": "solve-result", "at": "2026-10-31T14:25:41.294Z", "resultText": "Host wins — solved before the deadline." },
+    { "name": "public-payload-private", "at": "2026-10-31T14:25:48.801Z", "hasSolution": false, "hasHostControls": false, "hasPuzzleId": false },
+    { "name": "rematch-created", "at": "2026-10-31T14:25:50.780Z", "rematchId": "6d3ecd30-fcec-4066-bb2d-872ecbafe80c", "elapsedMs": 1979 },
+    { "name": "rematch", "at": "2026-10-31T14:25:54.557Z", "rematchId": "6d3ecd30-fcec-4066-bb2d-872ecbafe80c", "voterSeesBallot": true, "voterVoted": true }
+  ],
+  "diagnosticsSummary": {
+    "note": "Browser diagnostics contained expected Arena polling responses only: non-host host-projection checks returned 403, anonymous host-projection checks returned 401, and polling occasionally hit the Arena rate limit (429). No unexpected page errors occurred.",
+    "expectedStatusesObserved": [401, 403, 429],
+    "favicon404": true
+  }
+}

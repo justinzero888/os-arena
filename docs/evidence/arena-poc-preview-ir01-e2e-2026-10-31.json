@@ -1,0 +1,105 @@
+{
+  "base": "https://orbace-arena-phase4-preview-6crmw2eyu.vercel.app",
+  "startedAt": "2026-10-31T15:20:26.814Z",
+  "steps": [
+    {
+      "name": "signed-in",
+      "at": "2026-10-31T15:20:34.393Z",
+      "host": true,
+      "voters": 3
+    },
+    {
+      "name": "session-created",
+      "at": "2026-10-31T15:20:35.324Z",
+      "sessionId": "8152d71c-a831-4691-a29f-1d17dd252053"
+    },
+    {
+      "name": "three-distinct-votes",
+      "at": "2026-10-31T15:20:43.074Z",
+      "count": "3 audience vote(s) · closes 11:20:54 AM"
+    },
+    {
+      "name": "repeat-vote-updates",
+      "at": "2026-10-31T15:20:44.482Z",
+      "count": "3 audience vote(s) · closes 11:20:54 AM"
+    },
+    {
+      "name": "anonymous-watch-only",
+      "at": "2026-10-31T15:20:45.813Z",
+      "voteDisabled": true,
+      "message": "Sign in to Orbace to vote.",
+      "hostHidden": true,
+      "canWatch": true
+    },
+    {
+      "name": "overlay-consistent-ballot",
+      "at": "2026-10-31T15:20:47.243Z",
+      "voteHidden": true,
+      "hostHidden": true,
+      "sessionState": "BALLOT_OPEN"
+    },
+    {
+      "name": "voter-cannot-host-ui",
+      "at": "2026-10-31T15:20:47.244Z",
+      "hostPanelHidden": true,
+      "startDisabled": true
+    },
+    {
+      "name": "voter-refresh-recovery",
+      "at": "2026-10-31T15:20:49.481Z",
+      "status": "BALLOT_OPEN",
+      "voteCount": 3
+    },
+    {
+      "name": "host-refresh-recovery",
+      "at": "2026-10-31T15:20:51.816Z",
+      "hostPanelVisible": true
+    },
+    {
+      "name": "host-authorized-vote-count",
+      "at": "2026-10-31T15:20:55.272Z",
+      "voteCount": 3
+    },
+    {
+      "name": "round-playing",
+      "at": "2026-10-31T15:21:00.476Z",
+      "state": "PLAYING",
+      "audienceCellsDisabled": true,
+      "hostControlsVisible": false
+    },
+    {
+      "name": "overlay-consistent-playing",
+      "at": "2026-10-31T15:21:00.476Z",
+      "state": "PLAYING",
+      "cellsDisabled": true,
+      "voteHidden": true,
+      "hostControlsHidden": true
+    },
+    {
+      "name": "solve-result",
+      "at": "2026-10-31T15:21:09.802Z",
+      "resultText": "Host wins — solved before the deadline."
+    },
+    {
+      "name": "public-payload-private",
+      "at": "2026-10-31T15:21:17.715Z",
+      "hasSolution": false,
+      "hasHostControls": false,
+      "hasPuzzleId": false
+    },
+    {
+      "name": "rematch-created",
+      "at": "2026-10-31T15:21:19.830Z",
+      "rematchId": "b9f94408-6636-4e68-bfdf-e408a7fdd545"
+    },
+    {
+      "name": "rematch-voter-voted",
+      "at": "2026-10-31T15:21:24.461Z",
+      "rematchId": "b9f94408-6636-4e68-bfdf-e408a7fdd545"
+    }
+  ],
+  "rateLimits": [],
+  "pageErrors": [],
+  "ok": true,
+  "finishedAt": "2026-10-31T15:21:24.461Z"
+}

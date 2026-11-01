@@ -1,0 +1,65 @@
+{
+  "base": "https://orbace-arena-phase4-preview-2bocroddc.vercel.app",
+  "startedAt": "2026-10-31T17:06:05.513Z",
+  "steps": [
+    {
+      "name": "session-created",
+      "at": "2026-10-31T17:06:07.245Z",
+      "sessionId": "acd51055-b427-49bb-9bf9-2d5870aace34",
+      "shareUrl": "https://orbace-arena-phase4-preview-2bocroddc.vercel.app/arena?session=acd51055-b427-49bb-9bf9-2d5870aace34#:~:text=Share%20this%20Arena%20link"
+    },
+    {
+      "name": "anonymous-share-link",
+      "at": "2026-10-31T17:06:08.649Z",
+      "title": "Sudoku Arena | Orbace",
+      "bodyHasVercelLogin": false,
+      "voteDisabled": true,
+      "hostHidden": true,
+      "canWatch": true,
+      "error": ""
+    },
+    {
+      "name": "anonymous-vote-api",
+      "at": "2026-10-31T17:06:08.720Z",
+      "status": 401
+    },
+    {
+      "name": "voters-returned-to-session",
+      "at": "2026-10-31T17:06:16.529Z",
+      "stashed": [
+        "/arena?session=acd51055-b427-49bb-9bf9-2d5870aace34",
+        "/arena?session=acd51055-b427-49bb-9bf9-2d5870aace34",
+        "/arena?session=acd51055-b427-49bb-9bf9-2d5870aace34"
+      ]
+    },
+    {
+      "name": "voter-cannot-host",
+      "at": "2026-10-31T17:06:22.051Z",
+      "hostHidden": true,
+      "startDisabled": true
+    },
+    {
+      "name": "host-authorized-votes",
+      "at": "2026-10-31T17:06:23.246Z",
+      "status": 200,
+      "voteCount": 3
+    },
+    {
+      "name": "repeat-vote-stays-three",
+      "at": "2026-10-31T17:06:26.002Z",
+      "voteCount": 3
+    },
+    {
+      "name": "overlay-anonymous",
+      "at": "2026-10-31T17:06:27.505Z",
+      "state": "BALLOT_OPEN",
+      "voteHidden": true,
+      "hostHidden": true,
+      "bodyHasVercelLogin": false
+    }
+  ],
+  "rateLimits": [],
+  "pageErrors": [],
+  "ok": true,
+  "finishedAt": "2026-10-31T17:06:27.505Z"
+}

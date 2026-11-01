@@ -1,0 +1,89 @@
+{
+  "base": "https://orbace-arena-phase4-preview-4esyt5trj.vercel.app",
+  "startedAt": "2026-10-31T20:36:24.853Z",
+  "steps": [
+    {
+      "name": "host-signed-in-and-created",
+      "at": "2026-10-31T20:36:29.380Z",
+      "sessionId": "2a77a42a-4e81-4a45-a3cc-6cfca0900a4c"
+    },
+    {
+      "name": "anonymous-audience",
+      "at": "2026-10-31T20:36:32.733Z",
+      "hostActionStatus": 401,
+      "count": 3
+    },
+    {
+      "name": "overlay-anonymous",
+      "at": "2026-10-31T20:36:33.676Z",
+      "voteHidden": true,
+      "hostHidden": true,
+      "bodyHasVercelLogin": false
+    },
+    {
+      "name": "host-sees-audience",
+      "at": "2026-10-31T20:36:33.985Z",
+      "presence": "4 watching · 0 voters"
+    },
+    {
+      "name": "anonymous-votes",
+      "at": "2026-10-31T20:36:40.419Z",
+      "presence": "4 watching · 3 voters",
+      "ballot": "3 audience vote(s) · closes 4:37:28 PM"
+    },
+    {
+      "name": "anonymous-vote-change-stays-three",
+      "at": "2026-10-31T20:36:41.835Z",
+      "presence": "4 watching · 3 voters",
+      "ballot": "3 audience vote(s) · closes 4:37:28 PM"
+    },
+    {
+      "name": "round-started",
+      "at": "2026-10-31T20:36:46.645Z",
+      "startAttempts": 1
+    },
+    {
+      "name": "board-ready",
+      "at": "2026-10-31T20:36:46.682Z",
+      "timerTexts": [
+        "04:58",
+        "04:58",
+        "04:58"
+      ]
+    },
+    {
+      "name": "audience-live-values",
+      "at": "2026-10-31T20:36:50.824Z",
+      "valueIndex1": 2,
+      "valueIndex2": 3
+    },
+    {
+      "name": "audience-notes-sync",
+      "at": "2026-10-31T20:36:59.051Z",
+      "noteIndex": 5,
+      "before": "12",
+      "changed": "1",
+      "cleared": true
+    },
+    {
+      "name": "result-converged",
+      "at": "2026-10-31T20:37:02.480Z",
+      "host": "Host wins — solved before the deadline.",
+      "audience": "Host wins — solved before the deadline.",
+      "overlay": "Host wins — solved before the deadline."
+    },
+    {
+      "name": "public-payload-private",
+      "at": "2026-10-31T20:37:02.944Z"
+    },
+    {
+      "name": "rematch-anonymous-vote",
+      "at": "2026-10-31T20:37:06.611Z",
+      "rematchId": "3cca5186-2961-4fe9-82de-3acb836737dc"
+    }
+  ],
+  "rateLimits": [],
+  "pageErrors": [],
+  "ok": true,
+  "finishedAt": "2026-10-31T20:37:06.612Z"
+}

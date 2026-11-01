@@ -1,0 +1,39 @@
+{
+  "base": "https://orbace-arena-phase4-preview-9cti36x5t.vercel.app",
+  "steps": [
+    {
+      "name": "signin-route",
+      "at": "2026-10-31T16:11:46.442Z",
+      "path": "/signin",
+      "stashedReturnTo": "/arena"
+    },
+    {
+      "name": "post-signin-navigation",
+      "at": "2026-10-31T16:11:47.708Z",
+      "path": "/arena"
+    },
+    {
+      "name": "returned-to-arena",
+      "at": "2026-10-31T16:11:47.715Z",
+      "path": "/arena"
+    },
+    {
+      "name": "host-auth-ready",
+      "at": "2026-10-31T16:11:48.093Z",
+      "status": "registered",
+      "displayName": "arena-host-test",
+      "error": "",
+      "errorHidden": true,
+      "arenaStatus": "Host a round or join an Arena with its session link."
+    },
+    {
+      "name": "host-created-session",
+      "at": "2026-10-31T16:11:49.292Z",
+      "sessionId": "97f58a0d-8e1e-4616-bb09-881d2670e070"
+    }
+  ],
+  "rateLimits": [],
+  "pageErrors": [],
+  "ok": true,
+  "finishedAt": "2026-10-31T16:11:49.292Z"
+}
