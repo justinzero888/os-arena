@@ -4,6 +4,15 @@
 **Scope:** The five integration checks requested by Issue #5 and `CODEX_PHASE1_KICKOFF.md`. This is a delta check, not a replacement for `FRONTEND_BACKEND_TWITCH_FLOW.md`.  
 **Safety:** Orbace checkout inspected read-only. Its current branch is `claude/supu-library-phase1-2` and has numerous modified and untracked files; none were changed. No environment files or credentials were read.
 
+> **Remediation delta — 2026-10-29:** The earlier statement that internal
+> `PuzzleDaily` selection was safe is superseded. Arena now requires an
+> explicitly eligible row from a private `arena_puzzle_supply` table, returns
+> no puzzle identifier in public or host projections, and rejects supply whose
+> board is available through the registered public daily/pool/pack puzzle route.
+> A missing safe candidate returns a conflict; it never falls back to public or
+> official puzzle records. This revised local work remains pending independent
+> review and has not been applied to a shared database.
+
 ## Worktree and baseline
 
 - Arena checkout: `/Users/justinzero/orbacetech/DevProjects/os-twitcharena`, branch `feat/arena-mvp`, HEAD `764423f` (`feat: add Twitch chat connectivity smoke test`), remote `origin` is `https://github.com/justinzero888/os-arena.git`.
@@ -36,6 +45,20 @@ The prior Issue #3 audit remains authoritative for `/challenge`, Reddit Help to 
 
 The bounded Phase 0 exit condition is met: the integration-critical conventions are evidenced, unresolved integration boundaries are documented, and safe implementation work has proceeded. This does **not** mean production auth, persistence, or Arena deployment is complete.
 
+## Phase 3 approval and Phase 4 readiness evidence — 2026-10-29
+
+The Phase 3 package was independently approved on GitHub Issue #6 (comment 6506971946; issue label `chat-approved`). The approval covers the actual package and evidence; it does not authorize release actions.
+
+The owner-directed Phase 4 is pilot readiness (the execution plan's former Phase 7). Local inspection of the isolated Orbace worktree at `/Users/justinzero/.codex/worktrees/orbace-arena-phase1` confirmed:
+
+- `isArenaEnabled()` in `backend/org-api/src/lib/feature-flags.ts` accepts only exact `ARENA_ENABLED === 'true'`; `arenaHostAllowlist()` returns an empty set when unset/blank. `.env.example` remains `ARENA_ENABLED=false` and has an empty host allowlist.
+- `backend/org-api/src/routes/arena.routes.ts` selects only `ArenaPuzzleSupply` rows with `eligible=true`, excludes prior series puzzle IDs, checks candidate givens/solutions against daily, pool and pack public routes, and returns conflict when no safe candidate exists. There is no public-catalog fallback.
+- No Arena supply seed or catalog is present in the inspected backend files. PostgreSQL integration tests create and delete disposable fixture supply; this is not evidence of a curated or adequately sized real bank.
+- On 2026-10-29, the documented `scripts/arena-review-postgres.sh` was run with a fresh disposable loopback PostgreSQL DB. All 48 migrations applied, all six Arena tables reported `rls=true`, `arena_policies=0` before the companion, and `migrations_applied=48`. The full test suite reported 155 files passed/1 skipped and 2,097 tests passed/6 skipped, including 11 PostgreSQL/browser integration tests. The script removed its disposable DB; no shared endpoint was used.
+- Current default-off evidence also includes `npm run check`, `npm test` (39/39), `npm run handoff:test` (4/4), `npm run arena:e2e` (2/2), and focused Orbace tests (68/68). Logs are in `/private/tmp/os-arena-phase4-evidence` for this local run.
+
+This evidence does not verify an approved host, production/staging origin or proxy, shared migration/RLS behavior, privacy-retention approval, real curated supply, load capacity, or deployment/rollback in an operated environment. Those remain explicit owner gates in `ARENA_PILOT_READINESS.md`.
+
 ## Phase 1 implementation evidence (2026-10-29 follow-up)
 
 The user expanded the requested work from a repository-only prototype into safe Orbace integration. To preserve the dirty primary checkout, implementation is in the clean Orbace worktree `/Users/justinzero/.codex/worktrees/orbace-arena-phase1`, local branch `codex/arena-phase1-integration`, based on committed HEAD `60b25fd3`. The original checkout at `/Users/justinzero/orbacetech/DevProjects/orbace-sudoku` remains unchanged and has unrelated pre-existing work. The path named `orbace-sudoku-v2` is not present.
@@ -60,3 +83,17 @@ The user expanded the requested work from a repository-only prototype into safe 
 The prior Phase 1 PASS is a local test-gate record and does not mean independent approval. The implementation agent inspected the actual tracked/untracked source and corrected concrete ticket-lifecycle, pre-auth ingress, early-rejection rate-limit, error-path privacy, UUID/idempotency and atomic-RLS defects. Current evidence and file scope are in `ARENA_PHASE1_REVIEW.md`; pilot prerequisites are in `ARENA_PILOT_READINESS.md`.
 
 The real upstream is `justinzero888/orbace-sudoku-v2`, locally checked out under `orbace-sudoku`; integration changes stay in the isolated worktree, and the primary checkout is unchanged. The new review integration test uses real synthetic Orbace session cookies, canonical authenticate()/CSRF/rate limiting, real PostgreSQL and distinct host/guest browser contexts. It supplements the older auth-double browser test. RLS is now active immediately after Prisma migration, before the companion script; a granted non-owner role cannot read private round rows. Final full suite: 2,089 passed, 6 skipped; 155 files passed, 1 skipped. Prisma/build and fresh 48-migration run pass. All test DBs are disposable and removed. No shared DB, real host authorization or product UI mount is implied.
+
+## Phase 4 continuation — target supersession and read-only verification (2026-10-29)
+
+The owner replaced the original authorized Preview DB ref `vzpqsfpdktcnkkrcxzfj` with `cjimlozschaolqqsqksu` (`orbace-sudoku-zerotap-test`) for Arena staging. The decision on puzzle supply is also clarified: Quick/Standard/Endurance are time presets, and only Extreme puzzles may be selected. No code path or documentation may interpret these as three Sudoku difficulties.
+
+Read-only CLI verification found the approved Supabase project active/healthy and reachable, with no public application tables, no Prisma migration ledger, no Arena tables and no Arena RLS policies. The database was not mutated. Fly Preview is suspended; its secret listing confirms `DATABASE_URL` exists by name, but does not reveal its target. Because app startup may invoke Prisma migrations, and the recovery/backup procedure is unverified, the machine was not resumed. The prior Vercel Preview configuration check found no environment variables. The owner has supplied 20 boards; 16 pass format, consistency, unique-solution, and Extreme-rating checks, while four are excluded (indices 9, 10, 12, 18). A throwaway host `sub` remains absent.
+
+The latest disposable local integration rerun applied all 49 Prisma migrations and RLS companion checks, built Orbace, passed the full backend suite (**2,344 passed, 6 skipped**), and passed the PostgreSQL/browser Arena journey. These results do not establish shared Preview readiness. No Preview or production state was changed.
+
+The exact Fly Preview app/hostname is confirmed by read-only `fly status`: `justinzero-preview` / `justinzero-preview.fly.dev`, suspended with both machines stopped. Supabase project-list metadata confirms the selected target is active/healthy in `us-west-2`. The stopped app prevents an HTTP health or runtime secret-target check.
+
+## Phase 4 private puzzle intake validation — 2026-10-29
+
+The owner supplied 20 digit-only 81-character boards. The existing Orbace `validateGivens` and `rateDifficulty` functions were run locally; an independent Python backtracking solver also checked solution counts. Sixteen boards are consistent, uniquely solvable, and rated Extreme by Orbace's current difficulty rater (indices 1–8, 11, 13–17, 19–20). Indices 9, 12, and 18 have conflicting givens; index 10 has multiple solutions. No solution strings or raw puzzle values were copied into this repository or GitHub. The four rejected boards are excluded from seeding until corrected/replaced. No database was written.

@@ -1,5 +1,8 @@
 # Orbace Sudoku Arena — Revised Execution Plan
 
+> **Current sequence — 2026-10-30:** Phase 4 / Issue #7 is independently `chat-approved`. Phase 5 / Issue #8 is read-only production assessment and controlled-pilot release preparation. Its deliverable is an independent-reviewable plan, not authorization to mutate production, publish code or launch a pilot. See `ARENA_PHASE5_PRODUCTION_READINESS.md` for the current production evidence and no-go gates. Historical phase descriptions below remain for context.
+
+
 **Status:** Working plan for implementation  
 **Baseline:** Architecture v2.1 + existing flow audit + standalone Issue #4 MVP prototype  
 **Last updated:** 2026-10-29  

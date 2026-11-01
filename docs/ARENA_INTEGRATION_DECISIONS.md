@@ -3,6 +3,14 @@
 **Date:** 2026-10-29  
 **Status:** Phase 1 integration foundation implemented in an isolated local Orbace worktree; rollout prerequisites remain separate.
 
+> **Superseding remediation decision — 2026-10-29:** Arena answer privacy for
+> this milestone means no Arena response may provide an identifier or API path
+> for direct retrieval of its stored answer. General Sudoku import/solver tools
+> are out of scope. Arena uses only explicit private supply, defaulting to no
+> eligible puzzle. Records exposed through public daily, pool, or pack routes
+> are rejected, including a scheduled official-event puzzle backed by a public
+> daily record. A start with no safe candidate fails closed.
+
 ## Settled boundaries
 
 | Area | Decision | Rationale / evidence |
@@ -91,4 +99,30 @@ Before a real pilot or shared-environment release, an approved real host ID must
 - **Idempotency/API accuracy:** only start and solve have version/key command replay, bound to the correct event type. Guest upsert keeps one vote row but repeated votes still append events/increment versions; stronger request deduplication, create idempotency and rematch remain planned Phase 2 work.
 - **Test identity:** original DB/browser tests use an auth double. New independent harness uses an actual locally generated Orbace session cookie and persisted synthetic player via canonical middleware/CSRF with separate anonymous browser context. No Supabase login, real host approval or actual account credential is used. Same-origin product UI is still unmounted.
 - **Evidence:** final backend 2,089 passed/6 skipped (155 files passed/1 skipped); build/schema/migrations and restricted-role RLS pass. Standalone 36 Node/4 handoff/2 browser tests pass. See `ARENA_PHASE1_REVIEW.md` for exact commands and the local review bundle/patch manifest.
-- **Approval:** local fixes and review packet are ready; external independent approval and any publication are still pending. Keep Issue #5 open in `codex-review`; see separate `ARENA_PILOT_READINESS.md` for host/UI/shared-DB/release decisions.
+- **Approval:** local fixes and review packet are ready; external independent approval and any publication are still pending. (Historical, 2026-10-29: Issue #5 was then held in `codex-review`; later phases are approved per the superseding sections below.) See separate `ARENA_PILOT_READINESS.md` for host/UI/shared-DB/release decisions.
+
+> **Note:** Sections above this point (including the difficulty-tier ballot assumptions) are historical Phase 1 decisions. Where they conflict with the superseding sections below — notably the Quick/Standard/Endurance **time modes, Extreme-only supply** decision — the later sections win.
+
+## Superseding Phase 3 approval and Phase 4 pilot-readiness decisions — 2026-10-29
+
+- **Independent approval:** Phase 3 / Issue #6 is `chat-approved`; reviewer comment 6506971946 is the evidence. This is not permission to release.
+- **Phase numbering:** the owner's follow-on “Phase 4” means pilot readiness and controlled local/staging validation; it maps to the former Phase 7 in `ARENA_EXECUTION_PLAN.md`. Issue #7 tracks it. Gameplay Phase 4 requirements from the old numbering were implemented and independently accepted with Issue #6.
+- **Private puzzle source:** `ArenaPuzzleSupply` is the only eligible source. The latest route requires eligible private supply, avoids series repeats, rejects candidates exposed by public daily/pool/pack routes, rejects protected official collisions, and fails closed without a candidate. No seed/catalog exists in the inspected worktree; fixture rows in tests are temporary only. Sufficient unique supply, source rights, tier quality and PM repetition policy remain unresolved.
+- **Current local verification:** fresh disposable PostgreSQL accepted all 48 migrations; six Arena tables had RLS enabled before the companion script, with zero policies; the complete backend reported 2,097 passed and 6 skipped (155 files passed, 1 skipped), including 11 PostgreSQL/browser integration tests. Standalone os-arena results: 39 Node, 4 handoff, 2 Playwright passed; focused Orbace suite: 68 passed. Evidence log directory: `/private/tmp/os-arena-phase4-evidence`.
+- **No implied authorization:** no actual host ID, shared/staging database, trusted proxy/origin, privacy policy, production config, or pilot supply was set/read/changed. Their owner approvals remain prerequisites.
+
+## Owner-directed Phase 4 superseding decisions — 2026-10-29
+
+- **Preview DB target:** the owner explicitly replaced the previous Preview ref with `orbace-sudoku-zerotap-test` (`cjimlozschaolqqsqksu`). Do not use the old `vzpqsfpdktcnkkrcxzfj` ref for this Arena staging run. Production ref remains prohibited.
+- **Puzzle ballot:** presets are `quick`, `standard`, and `endurance` time modes. All select exclusively from the owner-approved Extreme-only private Arena supply. No Easy/Medium/Hard puzzle selection and no Daily/Pool/official fallback. The owner supplied 20 strings; 16 are consistent, unique, and rated Extreme, exceeding the original ten-board staging minimum. Four invalid boards are excluded (indices 9, 10, 12, 18). Seed only the validated 16 after shared-DB safeguards pass; do not substitute fixtures or generated content.
+- **Retention/logging:** owner approved at most seven days for Arena events, no Arena analytics, and no raw IP or guest identifiers in application logs.
+- **Host identity:** use a newly created throwaway Instant Identity account; allowlist its verified Supabase `sub` only. The identifier is not yet available, so the allowlist stays empty.
+- **Target state:** read-only check confirmed the approved project active/healthy and initially empty (no public app tables, Prisma migration ledger, Arena tables, or Arena policies). No database change occurred. The stopped Fly Preview secret target and backup/recovery capability are not verified; do not start the app until those guards pass.
+
+## Reconciliation of team staging recommendations with owner decisions — 2026-10-29
+
+The team staging response is evidence and contains recommendations; the direct owner instructions take precedence. Keep using the owner-selected existing Fly app `justinzero-preview`, bare flag `ARENA_ENABLED`, Vercel Preview same-origin topology, the authenticated `sub` allowlist, and the owner-supplied private Extreme boards (16 validated of 20 supplied; ten is only the minimum). Do not create a new Fly app, rename the flag to `FLAG_ARENA_ENABLED`, generate replacement puzzles, or switch the identity key to `playerId` unless the owner changes those decisions.
+
+The selected Supabase project is shared with Zero-Tap. Its public schema was found empty, but the project may hold Auth/passkey configuration. Never reset the project or change Auth/passkey/RP settings. The backend container runs all pending Prisma migrations at boot; starting the current branch would apply the complete baseline migration set as well as Arena additions. Owner-authorized Arena staging migration does not remove the need to agree on safe shared-project ordering and recovery. Team Mobile coordination and the owner-required backup/recovery guard remain open.
+
+The code follows the owner-approved `AuthenticatedUser.sub` allowlist, while the team response recommends Orbace `playerId`. Keep the owner’s choice and verify the actual test account’s returned `sub` before setting any allowlist.

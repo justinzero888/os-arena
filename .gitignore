@@ -15,3 +15,6 @@ coverage/
 
 # Owner-validated local Extreme supply (private puzzle data)
 .arena-extreme-supply.json
+
+# Supabase CLI local link metadata (shared staging project ref/org; keep out of submission source)
+supabase/.temp/

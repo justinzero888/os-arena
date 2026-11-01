@@ -25,3 +25,7 @@ Also decide: trust `X-Forwarded-For` (only if deployed behind a known proxy) so 
 - A request without a server-issued guest credential cannot add a counted vote.
 - Tests cover cookie-less, replayed-cookie and rate-limited voting.
 - API contract change (if any) is noted in the README.
+
+## Current Phase 4 status — 2026-10-29
+
+No PM decision resolving this tradeoff was found. Treat cookie-less vote stuffing and proxy-shared IP limits as an open pilot risk, not as an accepted risk. Local Arena routes apply per-IP/per-guest limiting and tests cover route controls, but production client IP semantics cannot be verified until operations identifies and approves the trusted proxy boundary. Before pilot, PM must choose a voter identity policy (including whether to require an issued cookie/join token or explicitly accept trusted-audience risk); operations must document which proxy headers are trusted. Do not begin trusting arbitrary `X-Forwarded-For` values.
