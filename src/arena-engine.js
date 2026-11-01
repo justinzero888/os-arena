@@ -1,22 +1,22 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { loadExtremeSupply } from './arena-extreme-supply.js';
 
 export const PRESETS = Object.freeze({
-  easy: Object.freeze({ id: 'easy', name: 'Easy Sprint', difficulty: 'Easy', seconds: 180 }),
-  medium: Object.freeze({ id: 'medium', name: 'Medium Match', difficulty: 'Medium', seconds: 300 }),
-  hard: Object.freeze({ id: 'hard', name: 'Hard Survival', difficulty: 'Hard', seconds: 480 }),
+  quick: Object.freeze({ id: 'quick', name: 'Quick', difficulty: 'Extreme', seconds: 180 }),
+  standard: Object.freeze({ id: 'standard', name: 'Standard', difficulty: 'Extreme', seconds: 300 }),
+  endurance: Object.freeze({ id: 'endurance', name: 'Endurance', difficulty: 'Extreme', seconds: 480 }),
 });
-export const PRESET_TIE_PRIORITY = Object.freeze(['easy', 'medium', 'hard']);
-const BASE_GIVENS = '530070000600195000098000060800060003400803001700020006060000280000419005000080079';
-const BASE_SOLUTION = '534678912672195348198342567859761423426853791713924856961537284287419635345286179';
+export const PRESET_TIE_PRIORITY = Object.freeze(['quick', 'standard', 'endurance']);
 const hash = value => createHash('sha256').update(value).digest();
 const newId = () => randomBytes(9).toString('base64url');
-
+let supply;
 export function puzzleForRound(round) {
-  // A digit permutation preserves Sudoku validity and gives rematches a fresh board.
-  const shift = Math.max(0, round) % 8 + 1;
-  const mapDigit = c => c === '0' ? '0' : String((Number(c) - 1 + shift) % 9 + 1);
-  return { givens: [...BASE_GIVENS].map(mapDigit).join(''), solution: [...BASE_SOLUTION].map(mapDigit).join('') };
+  supply ??= loadExtremeSupply();
+  if (!Number.isSafeInteger(round) || round < 0 || round >= supply.length) throw new ArenaError(503, 'EXTREME_SUPPLY_EXHAUSTED');
+  return supply[round];
 }
+
+const participatingGuests = session => [...session.votes.keys()].filter(guest => session.guests.has(guest)).length;
 
 function resolvePreset(session) {
   const counts = Object.fromEntries(PRESET_TIE_PRIORITY.map(id => [id, 0]));
@@ -32,32 +32,38 @@ function resolvePreset(session) {
 }
 
 export class ArenaStore {
-  constructor({ now = () => Date.now(), presetVoteMs = 20_000, sessionTtlMs = 2 * 60 * 60 * 1000 } = {}) {
+  constructor({ now = () => Date.now(), presetVoteMs = 20_000, sessionTtlMs = 2 * 60 * 60 * 1000, minParticipants = 1 } = {}) {
+    if (!Number.isSafeInteger(minParticipants) || minParticipants < 1 || minParticipants > 20) throw new Error('Invalid minimum participant count');
+    this.minParticipants = minParticipants;
     this.now = now;
     this.sessionTtlMs = sessionTtlMs;
     this.presetVoteMs = presetVoteMs;
     this.sessions = new Map();
     this.idempotent = new Map();
+    this.activeSessionId = null;
+    this.nextSessionSequence = 0;
   }
 
-  create(defaultPreset = 'easy', priorSessionId = null) {
+  create(defaultPreset = 'quick', priorSessionId = null) {
     if (!PRESETS[defaultPreset]) throw new ArenaError(400, 'INVALID_PRESET');
     const id = newId();
     const hostToken = randomBytes(32).toString('base64url');
     const round = priorSessionId ? (this.sessions.get(priorSessionId)?.round ?? 0) + 1 : 0;
     const puzzle = puzzleForRound(round);
     const session = {
-      id, hostHash: hash(hostToken), status: 'PRESET_VOTE', defaultPreset, preset: null,
+      id, sessionSequence: ++this.nextSessionSequence, hostHash: hash(hostToken), status: 'CREATED', defaultPreset, preset: null, guests: new Map(),
       presetResults: null, votes: new Map(), puzzle, round, priorSessionId,
-      createdAt: this.now(), touchedAt: this.now(), ballotDeadline: this.now() + this.presetVoteMs,
+      createdAt: this.now(), touchedAt: this.now(), ballotDeadline: null,
       roundDeadline: null, winner: null, resultReason: null, version: 1, pendingSolves: new Map(), nextSession: null,
     };
     this.sessions.set(id, session);
+    this.activeSessionId = id;
     return { id, hostToken, version: session.version };
   }
 
   #session(id) {
-    const session = this.sessions.get(id);
+    const resolvedId = id === 'live' ? this.activeSessionId : id;
+    const session = resolvedId ? this.sessions.get(resolvedId) : null;
     if (!session) throw new ArenaError(404, 'SESSION_NOT_FOUND');
     session.touchedAt = this.now();
     this.#advance(session);
@@ -69,7 +75,7 @@ export class ArenaStore {
     const cutoff = this.now() - this.sessionTtlMs;
     const evicted = new Set();
     for (const [id, session] of this.sessions) {
-      if (session.touchedAt <= cutoff && session.pendingSolves.size === 0) { this.sessions.delete(id); evicted.add(id); }
+      if (session.touchedAt <= cutoff && session.pendingSolves.size === 0) { this.sessions.delete(id); evicted.add(id); if (this.activeSessionId === id) this.activeSessionId = null; }
     }
     if (!evicted.size) return 0;
     for (const key of this.idempotent.keys()) if (evicted.has(key.slice(0, key.indexOf(':')))) this.idempotent.delete(key);
@@ -78,10 +84,13 @@ export class ArenaStore {
 
   #advance(session) {
     const now = this.now();
-    if (session.status === 'PRESET_VOTE' && now >= session.ballotDeadline) resolvePreset(session);
+    for (const [guest, seen] of session.guests) {
+      if (now - seen > 15_000) { session.guests.delete(guest); if (session.status !== 'PLAYING') session.version += 1; }
+    }
+    if (session.status === 'VOTING' && now >= session.ballotDeadline) resolvePreset(session);
     const eligibleSolvePending = [...session.pendingSolves.values()].some(({ ingressAt }) => ingressAt < session.roundDeadline);
     if (session.status === 'PLAYING' && now >= session.roundDeadline && !eligibleSolvePending) {
-      session.status = 'FINISHED'; session.winner = 'audience'; session.resultReason = 'TIME_EXPIRED'; session.version += 1;
+      session.status = 'RESULT'; session.winner = 'audience'; session.resultReason = 'TIME_EXPIRED'; session.version += 1;
     }
   }
 
@@ -109,19 +118,39 @@ export class ArenaStore {
     }
   }
 
+  join(id, guestHash) {
+    const s = this.#session(id);
+    const wasPresent = s.guests.has(guestHash);
+    s.guests.set(guestHash, this.now());
+    if (s.status === 'CREATED') s.status = 'LOBBY';
+    if (!wasPresent && s.status !== 'PLAYING') s.version += 1;
+    return this.publicSnapshot(id);
+  }
+
+  openVoting(id, token, expectedVersion) {
+    const s = this.#session(id); this.#requireHost(s, token);
+    if (s.version !== expectedVersion) throw new ArenaError(409, 'STALE_VERSION');
+    const mayReopen = s.status === 'READY' && participatingGuests(s) < this.minParticipants;
+    if ((s.status !== 'LOBBY' && !mayReopen) || s.guests.size === 0) throw new ArenaError(409, 'GUEST_REQUIRED');
+    if (mayReopen) { s.votes.clear(); s.preset = null; s.presetResults = null; }
+    s.status = 'VOTING'; s.ballotDeadline = this.now() + this.presetVoteMs; s.version += 1;
+    return this.hostSnapshot(id, token);
+  }
+
   publicSnapshot(id) {
     const s = this.#session(id);
     const now = this.now();
     return {
       id: s.id, status: s.status, version: s.version, preset: s.preset,
-      presets: Object.values(PRESETS), presetTiePriority: PRESET_TIE_PRIORITY,
-      presetVote: s.status === 'PRESET_VOTE'
+      sessionSequence: s.sessionSequence,
+      presets: Object.values(PRESETS), presetTiePriority: PRESET_TIE_PRIORITY, participantCount: s.guests.size, participationRequired: this.minParticipants, participationSatisfied: participatingGuests(s) >= this.minParticipants,
+      presetVote: s.status === 'VOTING'
         ? { closesAt: s.ballotDeadline, totalVotesCast: s.votes.size, results: null }
         : { closesAt: s.ballotDeadline, totalVotesCast: s.votes.size, results: s.presetResults },
-      puzzle: s.status === 'PLAYING' || s.status === 'FINISHED' ? { givens: s.puzzle.givens } : null,
+      puzzle: s.status === 'PLAYING' || s.status === 'RESULT' ? { givens: s.puzzle.givens } : null,
       deadline: s.roundDeadline, serverNow: now,
       secondsRemaining: s.status === 'PLAYING' ? Math.max(0, Math.ceil((s.roundDeadline - now) / 1000)) : null,
-      result: s.status === 'FINISHED' ? { winner: s.winner, reason: s.resultReason } : null,
+      result: s.status === 'RESULT' ? { winner: s.winner, reason: s.resultReason } : null,
       priorSessionId: s.priorSessionId,
     };
   }
@@ -137,7 +166,8 @@ export class ArenaStore {
     if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 100) throw new ArenaError(400, 'INVALID_REQUEST_ID');
     const key = `${id}:vote:${guestHash}:${requestId}`;
     if (this.idempotent.has(key)) return this.idempotent.get(key);
-    if (s.status !== 'PRESET_VOTE') throw new ArenaError(409, 'BALLOT_CLOSED');
+    if (s.status !== 'VOTING') throw new ArenaError(409, 'BALLOT_CLOSED');
+    if (!s.guests.has(guestHash)) throw new ArenaError(403, 'JOIN_REQUIRED');
     s.votes.set(guestHash, choice); s.version += 1;
     const result = { version: s.version, accepted: true };
     this.idempotent.set(key, result);
@@ -150,8 +180,9 @@ export class ArenaStore {
     if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 100) throw new ArenaError(400, 'INVALID_REQUEST_ID');
     if (this.idempotent.has(key)) return this.idempotent.get(key);
     if (!Number.isInteger(expectedVersion) || expectedVersion !== s.version) throw new ArenaError(409, 'STALE_VERSION');
-    if (s.status === 'PRESET_VOTE') throw new ArenaError(409, 'BALLOT_OPEN');
+    if (s.status === 'VOTING') throw new ArenaError(409, 'BALLOT_OPEN');
     if (s.status !== 'READY') throw new ArenaError(409, 'INVALID_TRANSITION');
+    if (participatingGuests(s) < this.minParticipants) throw new ArenaError(409, 'PARTICIPATION_REQUIRED');
     s.status = 'PLAYING'; s.roundDeadline = this.now() + PRESETS[s.preset].seconds * 1000; s.version += 1;
     const result = this.hostSnapshot(id, token);
     this.idempotent.set(key, result);
@@ -175,9 +206,9 @@ export class ArenaStore {
       ? solution.join('') : '';
     const correct = submitted === s.puzzle.solution && ingressAt < s.roundDeadline;
     if (correct) {
-      s.status = 'FINISHED'; s.winner = 'host'; s.resultReason = 'SOLVED'; s.version += 1;
+      s.status = 'RESULT'; s.winner = 'host'; s.resultReason = 'SOLVED'; s.version += 1;
     } else if (this.now() >= s.roundDeadline) {
-      s.status = 'FINISHED'; s.winner = 'audience'; s.resultReason = 'TIME_EXPIRED'; s.version += 1;
+      s.status = 'RESULT'; s.winner = 'audience'; s.resultReason = 'TIME_EXPIRED'; s.version += 1;
     } else {
       throw new ArenaError(400, 'SOLUTION_INCORRECT');
     }
@@ -186,12 +217,12 @@ export class ArenaStore {
     return result;
   }
 
-  rematch(id, token, expectedVersion, defaultPreset = 'easy', requestId) {
+  rematch(id, token, expectedVersion, defaultPreset = 'quick', requestId) {
     const s = this.#session(id); this.#requireHost(s, token);
     const key = `${id}:rematch:${requestId}`;
     if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 100) throw new ArenaError(400, 'INVALID_REQUEST_ID');
     if (this.idempotent.has(key)) return this.idempotent.get(key);
-    if (s.status !== 'FINISHED') throw new ArenaError(409, 'INVALID_TRANSITION');
+    if (s.status !== 'RESULT') throw new ArenaError(409, 'INVALID_TRANSITION');
     // A finished session has exactly one successor, whatever requestId the retry carries.
     if (s.nextSession) return s.nextSession;
     if (expectedVersion !== s.version) throw new ArenaError(409, 'STALE_VERSION');

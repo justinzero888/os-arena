@@ -6,7 +6,8 @@ const role = path[0] === 'host' ? 'host' : path[0] === 'overlay' ? 'overlay' : p
 const sessionId = path[1] || new URLSearchParams(location.search).get('session');
 let current = null;
 let poller = null;
-const labels = { PRESET_VOTE: 'Audience preset vote is open', READY: 'Preset vote closed — ready to start', PLAYING: 'Round in progress', FINISHED: 'Round complete' };
+let lastGuestHeartbeat = 0;
+const labels = { CREATED: 'Arena created — waiting for the audience', LOBBY: 'Lobby open — waiting for the host to open voting', VOTING: 'Audience time-mode vote is open', READY: 'Time-mode vote closed — ready to start', PLAYING: 'Round in progress', RESULT: 'Round complete' };
 const request = async (url, body) => {
   const response = await fetch(url, { method: body ? 'POST' : 'GET', credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
   const data = await response.json();
@@ -16,14 +17,14 @@ const request = async (url, body) => {
 function fail(error) { $('error').textContent = error.message; }
 function beginBoard(givens, editable) {
   const board = $('board'); board.replaceChildren();
-  if (!givens || !editable) { board.classList.add('hidden'); return; }
+  if (!givens) { board.classList.add('hidden'); return; }
   board.classList.remove('hidden');
   let draft = [];
   try { draft = JSON.parse(localStorage.getItem(`arena-board-draft-${sessionId}`) || '[]'); } catch { draft = []; }
   if (!Array.isArray(draft)) draft = [];
   [...givens].forEach((digit, index) => {
-    if (digit !== '0') {
-      const cell = document.createElement('div'); cell.className = 'cell given'; cell.textContent = digit; cell.dataset.index = String(index); cell.setAttribute('aria-label', `given ${digit}`); board.append(cell);
+    if (digit !== '0' || !editable) {
+      const cell = document.createElement('div'); cell.className = digit === '0' ? 'cell' : 'cell given'; cell.textContent = digit === '0' ? '' : digit; cell.dataset.index = String(index); cell.setAttribute('aria-label', digit === '0' ? `empty row ${Math.floor(index / 9) + 1}, column ${index % 9 + 1}` : `given ${digit}`); board.append(cell);
     } else {
       const cell = document.createElement('input'); cell.className = 'cell'; cell.type = 'text'; cell.inputMode = 'numeric'; cell.maxLength = 1; cell.pattern = '[1-9]'; cell.dataset.index = String(index); cell.value = /^[1-9]$/.test(String(draft[index] || '')) ? String(draft[index]) : ''; cell.setAttribute('aria-label', `row ${Math.floor(index / 9) + 1}, column ${index % 9 + 1}`);
       cell.addEventListener('input', () => { draft[index] = /^[1-9]$/.test(cell.value) ? cell.value : ''; try { localStorage.setItem(`arena-board-draft-${sessionId}`, JSON.stringify(draft)); } catch { /* Draft persistence is best-effort. */ } });
@@ -32,6 +33,7 @@ function beginBoard(givens, editable) {
   });
 }
 function paintTimer(state) {
+  if (state.status === 'VOTING') { const seconds = Math.max(0, Math.ceil((state.presetVote.closesAt - state.serverNow) / 1000)); $('timer').textContent = `Voting closes in ${seconds} seconds`; return; }
   $('timer').textContent = state.secondsRemaining == null ? '' : `Time remaining: ${Math.floor(state.secondsRemaining / 60)}:${String(state.secondsRemaining % 60).padStart(2, '0')}`;
 }
 function paint(state) {
@@ -44,23 +46,29 @@ function paint(state) {
   $('home').classList.add('hidden'); $('session').classList.remove('hidden');
   $('status').textContent = labels[state.status] || state.status;
   paintTimer(state);
-  $('preset').textContent = state.preset ? `Preset: ${state.presets.find(p => p.id === state.preset)?.name || state.preset}` : `Tie priority: ${state.presetTiePriority.map(id => state.presets.find(p => p.id === id).name).join(' → ')}`;
+  $('presence').textContent = `${state.participantCount} connected guest(s) · ${state.presetVote.totalVotesCast} vote(s) received · ${state.participationRequired} connected voter(s) required`;
+  $('preset').textContent = state.preset ? `Time mode: ${state.presets.find(p => p.id === state.preset)?.name || state.preset}` : `Tie priority: ${state.presetTiePriority.map(id => state.presets.find(p => p.id === id).name).join(' → ')}`;
   $('guest').classList.toggle('hidden', role !== 'guest'); $('host').classList.toggle('hidden', role !== 'host');
   if (role === 'host') {
     $('links').innerHTML = `Audience link: <a href="/join/${state.id}">${location.origin}/join/${state.id}</a><br>Read-only overlay: <a href="/overlay/${state.id}">${location.origin}/overlay/${state.id}</a>`;
     $('hostHint').textContent = 'Only this browser has the host control cookie. Board values are submitted to the server as a complete solution; the solution is not sent to guest snapshots.';
-    $('start').classList.toggle('hidden', !['PRESET_VOTE', 'READY'].includes(state.status));
+    const mayReopen = state.status === 'READY' && !state.participationSatisfied;
+    $('openVoting').classList.toggle('hidden', !['CREATED', 'LOBBY'].includes(state.status) && !mayReopen);
+    $('openVoting').textContent = mayReopen ? 'Reopen voting' : 'Open voting';
+    $('openVoting').disabled = state.participantCount === 0;
+    $('start').classList.toggle('hidden', !['VOTING', 'READY'].includes(state.status));
     updateStartButton($('start'), state);
     beginBoard(state.puzzle?.givens, state.status === 'PLAYING');
     $('solve').classList.toggle('hidden', state.status !== 'PLAYING');
-    $('rematch').classList.toggle('hidden', state.status !== 'FINISHED');
+    $('rematch').classList.toggle('hidden', state.status !== 'RESULT');
   } else if (role === 'guest') {
+    $('guestConfirmation').textContent = state.status === 'VOTING' ? 'You joined the crowd. Voting is open; choose a time mode.' : ['CREATED', 'LOBBY'].includes(state.status) ? 'You joined the crowd. Wait for the host to open voting.' : 'You joined the crowd. Follow the round here.';
     const form = $('voteForm'); form.replaceChildren();
-    if (state.status === 'PRESET_VOTE') {
+    if (state.status === 'VOTING') {
       for (const p of state.presets) {
         const label = document.createElement('label'); label.className = 'preset-option';
         const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'preset'; radio.value = p.id;
-        label.append(radio, ` ${p.name} — ${p.difficulty}, ${p.seconds} seconds`); form.append(label);
+        label.append(radio, ` ${p.name} — Extreme puzzle, ${p.seconds} seconds`); form.append(label);
       }
       const button = document.createElement('button'); button.textContent = 'Cast / change vote'; form.append(button);
     }
@@ -70,6 +78,7 @@ function paint(state) {
     beginBoard(state.puzzle?.givens, false);
   } else {
     $('guest').classList.add('hidden'); $('host').classList.add('hidden'); $('links').textContent = '';
+    beginBoard(state.puzzle?.givens, false);
   }
   if (state.result) {
     $('result').classList.remove('hidden');
@@ -80,6 +89,7 @@ async function refresh() {
   if (!sessionId) return;
   try {
     const url = role === 'host' ? `/api/arena/sessions/${sessionId}/host` : `/api/arena/sessions/${sessionId}`;
+    if (role === 'guest' && Date.now() - lastGuestHeartbeat >= 5000) { await request(`/api/arena/sessions/${sessionId}/join`, {}); lastGuestHeartbeat = Date.now(); }
     paint(await request(url));
     $('error').textContent = '';
   } catch (error) { fail(error); }
@@ -90,6 +100,9 @@ if (role === 'home' && !sessionId) {
     catch (error) { fail(error); }
   });
 } else if (sessionId) {
+  $('openVoting').addEventListener('click', async () => {
+    try { await request(`/api/arena/sessions/${sessionId}/open-voting`, { expectedVersion: current.version }); await refresh(); } catch (error) { fail(error); }
+  });
   $('voteForm').addEventListener('submit', async event => {
     event.preventDefault();
     const preset = new FormData(event.currentTarget).get('preset'); if (!preset) return;
@@ -112,7 +125,7 @@ if (role === 'home' && !sessionId) {
     } catch (error) { fail(error); }
   });
   $('rematch').addEventListener('click', async () => {
-    try { const next = await request(`/api/arena/sessions/${sessionId}/rematch`, { expectedVersion: current.version, defaultPreset: current.preset || 'easy', requestId: crypto.randomUUID() }); location.assign(next.hostUrl); }
+    try { const next = await request(`/api/arena/sessions/${sessionId}/rematch`, { expectedVersion: current.version, defaultPreset: current.preset || 'quick', requestId: crypto.randomUUID() }); location.assign(next.hostUrl); }
     catch (error) { fail(error); }
   });
   refresh(); poller = setInterval(refresh, 1000);

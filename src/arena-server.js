@@ -3,10 +3,16 @@ import { readFile } from 'node:fs/promises';
 import { join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
-import { ArenaError, ArenaStore } from './arena-engine.js';
+import { ArenaError, ArenaStore, puzzleForRound } from './arena-engine.js';
 
 const ROOT = fileURLToPath(new URL('../public/', import.meta.url));
 const COOKIE = 'arena_guest';
+const RATE_WINDOW_MS = 60_000;
+// Interactive mutations and new browser identities stay IP-limited. Presence
+// heartbeats are separately limited by the signed-in-browser cookie because
+// several guests legitimately share one local pilot IP.
+const IP_MUTATION_LIMIT = 30;
+const GUEST_HEARTBEAT_LIMIT = 15;
 const sha = value => createHash('sha256').update(value).digest('hex');
 const safeDecode = value => { try { return decodeURIComponent(value); } catch { return value; } };
 const parseCookies = header => Object.fromEntries((header || '').split(';').map(part => part.trim()).filter(Boolean).flatMap(part => {
@@ -20,10 +26,14 @@ const json = (res, status, body, extra = {}) => {
 export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'true', store = new ArenaStore(), maxBody = 8192, bodyTimeoutMs = 10_000, now = () => Date.now() } = {}) {
   const salt = randomBytes(32);
   const rates = new Map();
-  const sweepRates = at => { for (const [key, bucket] of rates) if (at >= bucket.resetAt) rates.delete(key); };
+  const establishedGuests = new Map();
+  const sweepRates = at => {
+    for (const [key, bucket] of rates) if (at >= bucket.resetAt) rates.delete(key);
+    for (const [guest, seenAt] of establishedGuests) if (at - seenAt >= 2 * 60 * 60 * 1000) establishedGuests.delete(guest);
+  };
   const takeRate = (key, limit, at) => {
     let bucket = rates.get(key);
-    if (!bucket || at >= bucket.resetAt) bucket = { count: 0, resetAt: at + 60_000 };
+    if (!bucket || at >= bucket.resetAt) bucket = { count: 0, resetAt: at + RATE_WINDOW_MS };
     bucket.count += 1; rates.set(key, bucket);
     return bucket.count > limit ? Math.max(1, Math.ceil((bucket.resetAt - at) / 1000)) : 0;
   };
@@ -50,9 +60,10 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
       let solveTicket = null;
       try {
         const cookies = parseCookies(req.headers.cookie);
-        if (req.method === 'POST') {
+        const isGuestHeartbeat = req.method === 'POST' && /\/join$/.test(url.pathname);
+        if (req.method === 'POST' && !isGuestHeartbeat) {
           const ip = req.socket.remoteAddress || 'unknown';
-          const retryAfter = takeRate(`ip:${ip}`, 30, ingressAt);
+          const retryAfter = takeRate(`ip:mutation:${ip}`, IP_MUTATION_LIMIT, ingressAt);
           if (retryAfter) return json(res, 429, { error: 'RATE_LIMITED' }, { 'Retry-After': String(retryAfter) });
         }
         const solveMatch = req.method === 'POST' && url.pathname.match(/^\/api\/arena\/sessions\/([A-Za-z0-9_-]+)\/solve$/);
@@ -64,12 +75,12 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
         if (req.method === 'POST' && req.headers['content-type']?.split(';')[0] !== 'application/json') return json(res, 415, { error: 'JSON_REQUIRED' });
         const createMatch = url.pathname === '/api/arena/sessions' && req.method === 'POST';
         if (createMatch) {
-          const created = store.create(body.defaultPreset || 'easy');
+          const created = store.create(body.defaultPreset || 'quick');
           const cookieName = `arena_host_${created.id}`;
           res.setHeader('Set-Cookie', `${cookieName}=${encodeURIComponent(created.hostToken)}; HttpOnly; SameSite=Strict; Path=/api/arena/sessions/${created.id}${req.socket.encrypted ? '; Secure' : ''}`);
           return json(res, 201, { id: created.id, version: created.version, hostUrl: `/host/${created.id}`, joinUrl: `/join/${created.id}`, overlayUrl: `/overlay/${created.id}` });
         }
-        const match = url.pathname.match(/^\/api\/arena\/sessions\/([A-Za-z0-9_-]+)(?:\/(host|votes|start|solve|rematch))?$/);
+        const match = url.pathname.match(/^\/api\/arena\/sessions\/([A-Za-z0-9_-]+)(?:\/(host|join|open-voting|votes|start|solve|rematch))?$/);
         if (!match) return json(res, 404, { error: 'NOT_FOUND' });
         const [, id, action] = match;
         if (req.method === 'GET' && !action) {
@@ -86,6 +97,27 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
           return json(res, 200, store.hostSnapshot(id, token));
         }
         if (req.method !== 'POST') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+        if (action === 'join') {
+          let guest = cookies[COOKIE];
+          const headers = {};
+          if (!guest || !/^[A-Za-z0-9_-]{32,}$/.test(guest)) {
+            guest = randomBytes(32).toString('base64url');
+            headers['Set-Cookie'] = `${COOKIE}=${guest}; HttpOnly; SameSite=Lax; Path=/${req.socket.encrypted ? '; Secure' : ''}`;
+          }
+          const guestHash = createHash('sha256').update(salt).update(guest).digest('hex');
+          // A public snapshot can mint this cookie, so only a prior successful
+          // join establishes it for the purpose of the shared-IP identity cap.
+          if (!establishedGuests.has(guestHash)) {
+            const ip = req.socket.remoteAddress || 'unknown';
+            const newGuestRetryAfter = takeRate(`ip:mutation:${ip}`, IP_MUTATION_LIMIT, ingressAt);
+            if (newGuestRetryAfter) return json(res, 429, { error: 'RATE_LIMITED' }, { ...headers, 'Retry-After': String(newGuestRetryAfter) });
+          }
+          const heartbeatRetryAfter = takeRate(`guest:join:${guestHash}`, GUEST_HEARTBEAT_LIMIT, ingressAt);
+          if (heartbeatRetryAfter) return json(res, 429, { error: 'RATE_LIMITED' }, { ...headers, 'Retry-After': String(heartbeatRetryAfter) });
+          establishedGuests.set(guestHash, ingressAt);
+          return json(res, 200, store.join(id, guestHash), headers);
+        }
+        if (action === 'open-voting') return json(res, 200, store.openVoting(id, cookies[`arena_host_${id}`], body.expectedVersion));
         if (action === 'votes') {
           let guest = cookies[COOKIE];
           const headers = {};
@@ -102,7 +134,7 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
         if (action === 'start') return json(res, 200, store.start(id, token, body.expectedVersion, body.requestId));
         if (action === 'solve') return json(res, 200, store.solve(id, token, body, ingressAt));
         if (action === 'rematch') {
-          const created = store.rematch(id, token, body.expectedVersion, body.defaultPreset || 'easy', body.requestId);
+          const created = store.rematch(id, token, body.expectedVersion, body.defaultPreset || 'quick', body.requestId);
           const cookieName = `arena_host_${created.id}`;
           res.setHeader('Set-Cookie', `${cookieName}=${encodeURIComponent(created.hostToken)}; HttpOnly; SameSite=Strict; Path=/api/arena/sessions/${created.id}${req.socket.encrypted ? '; Secure' : ''}`);
           return json(res, 201, { id: created.id, version: created.version, hostUrl: `/host/${created.id}`, joinUrl: `/join/${created.id}`, overlayUrl: `/overlay/${created.id}` });
@@ -215,6 +247,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('Arena is disabled. Set ARENA_ENABLED=true for an explicit local pilot run.');
     process.exitCode = 1;
   } else {
+    // Validate the private local supply before accepting any sessions.
+    try { puzzleForRound(0); } catch { console.error('Validated local Extreme supply is unavailable. See the Round A setup instructions.'); process.exit(1); }
     const port = Number(process.env.PORT || 4173);
     const server = createArenaServer();
     server.listen(port, '127.0.0.1', () => console.log(`Arena local pilot listening at http://127.0.0.1:${port}`));

@@ -9,7 +9,7 @@
   "scripts": {
     "twitch:test": "node --env-file=.env src/twitch-connectivity-test.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/twitch-connectivity-test.js && node --check test/twitch-connectivity-test.test.js && node --check scripts/handoff/handoff.mjs && node --check scripts/handoff/handoff.test.mjs && node --check src/arena-engine.js && node --check src/arena-server.js && node --check public/arena.js && node --check public/arena-ui-state.js && node --check test/arena.test.js && node --check e2e/server.mjs && node --check e2e/arena.spec.js && node --check playwright.config.js",
+    "check": "node --check src/twitch-connectivity-test.js && node --check test/twitch-connectivity-test.test.js && node --check scripts/handoff/handoff.mjs && node --check scripts/handoff/handoff.test.mjs && node --check src/arena-engine.js && node --check src/arena-extreme-supply.js && node --check src/arena-server.js && node --check public/arena.js && node --check public/arena-ui-state.js && node --check test/arena.test.js && node --check e2e/server.mjs && node --check e2e/arena.spec.js && node --check playwright.config.js",
     "handoff": "node scripts/handoff/handoff.mjs",
     "handoff:test": "node --test scripts/handoff/handoff.test.mjs",
     "arena:dev": "node src/arena-server.js",

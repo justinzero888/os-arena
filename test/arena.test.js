@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadExtremeSupply } from '../src/arena-extreme-supply.js';
 import { ArenaStore, ArenaError, PRESETS, puzzleForRound } from '../src/arena-engine.js';
 import { createArenaServer } from '../src/arena-server.js';
 import { acceptSnapshot, isCountdownOnly, updateStartButton } from '../public/arena-ui-state.js';
@@ -9,72 +13,130 @@ const validGrid = value => [...value].map(Number);
 const failure = (fn, code) => assert.throws(fn, error => error instanceof ArenaError && error.code === code);
 const requestId = n => `request-${n}-123456`;
 
+function prepareVote(store, created, guest = 'test-guest', choice = 'quick') {
+  store.join(created.id, guest);
+  const host = store.hostSnapshot(created.id, created.hostToken);
+  store.openVoting(created.id, created.hostToken, host.version);
+  store.vote(created.id, guest, choice, requestId(Math.random()));
+}
 function startRound(store, created, version = created.version) {
+  const session = store.sessions.get(created.id);
+  if (['CREATED', 'LOBBY'].includes(session.status)) prepareVote(store, created);
+  session.ballotDeadline = store.now();
+  store.join(created.id, [...session.votes.keys()][0]);
   const host = store.hostSnapshot(created.id, created.hostToken);
   return store.start(created.id, created.hostToken, version === created.version ? host.version : version, requestId(Math.random()));
 }
 
-test('preset vote: no votes use host default; ties follow the documented priority; last vote wins', () => {
-  let now = 1_000;
+test('guest joins before host opens voting; ballot closes only after its duration; no empty audience start', () => {
+  let now = 1000;
   const store = new ArenaStore({ now: () => now });
-  const noVotes = store.create('medium');
-  now += 20_000;
-  const ready = store.start(noVotes.id, noVotes.hostToken, store.hostSnapshot(noVotes.id, noVotes.hostToken).version, requestId(1));
-  assert.equal(ready.preset, 'medium');
-  assert.deepEqual(ready.presetVote.results, { easy: 0, medium: 0, hard: 0 });
-
-  const tied = store.create('hard');
-  store.vote(tied.id, 'guest-a', 'hard', requestId(2));
-  store.vote(tied.id, 'guest-b', 'easy', requestId(3));
-  store.vote(tied.id, 'guest-c', 'easy', requestId(4));
-  store.vote(tied.id, 'guest-d', 'hard', requestId(5));
-  now += 20_000;
-  const tieResult = store.start(tied.id, tied.hostToken, store.hostSnapshot(tied.id, tied.hostToken).version, requestId(6));
-  assert.equal(store.vote(tied.id, 'guest-a', 'hard', requestId(2)).accepted, true);
-  assert.equal(store.publicSnapshot(tied.id).presetVote.totalVotesCast, 4);
-  assert.equal(tieResult.preset, 'easy');
-  assert.deepEqual(tieResult.presetVote.results, { easy: 2, medium: 0, hard: 2 });
-
-  const changed = store.create();
-  store.vote(changed.id, 'same-guest', 'hard', requestId(7));
-  store.vote(changed.id, 'same-guest', 'medium', requestId(8));
-  now += 20_000;
-  const changedResult = store.start(changed.id, changed.hostToken, store.hostSnapshot(changed.id, changed.hostToken).version, requestId(9));
-  assert.equal(changedResult.preset, 'medium');
-  assert.equal(changedResult.presetVote.results.hard, 0);
-  now += 1;
-  assert.ok(PRESETS.easy.seconds > 0);
+  const created = store.create('standard');
+  assert.equal(store.publicSnapshot(created.id).status, 'CREATED');
+  failure(() => store.openVoting(created.id, created.hostToken, created.version), 'GUEST_REQUIRED');
+  store.join(created.id, 'guest-a');
+  let host = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(host.status, 'LOBBY');
+  assert.equal(host.participantCount, 1);
+  assert.equal(host.presetVote.totalVotesCast, 0);
+  failure(() => store.vote(created.id, 'guest-a', 'quick', requestId(1)), 'BALLOT_CLOSED');
+  store.openVoting(created.id, created.hostToken, host.version);
+  store.vote(created.id, 'guest-a', 'standard', requestId(2));
+  now += 19_999; store.join(created.id, 'guest-a');
+  host = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(host.status, 'VOTING');
+  failure(() => store.start(created.id, created.hostToken, host.version, requestId(3)), 'BALLOT_OPEN');
+  now += 1; host = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(host.status, 'READY');
+  assert.equal(host.preset, 'standard');
+  assert.equal(host.presetVote.totalVotesCast, 1);
+  assert.equal(store.publicSnapshot(created.id).version, host.version);
+  assert.equal(store.start(created.id, created.hostToken, host.version, requestId(4)).status, 'PLAYING');
+  const empty = store.create(); store.join(empty.id, 'guest-b'); let e = store.hostSnapshot(empty.id, empty.hostToken);
+  store.openVoting(empty.id, empty.hostToken, e.version); now += 20_000; store.join(empty.id, 'guest-b');
+  e = store.hostSnapshot(empty.id, empty.hostToken);
+  failure(() => store.start(empty.id, empty.hostToken, e.version, requestId(5)), 'PARTICIPATION_REQUIRED');
+  store.join(empty.id, 'guest-b'); e = store.hostSnapshot(empty.id, empty.hostToken);
+  assert.equal(store.openVoting(empty.id, empty.hostToken, e.version).status, 'VOTING');
+  assert.equal(store.publicSnapshot(empty.id).presetVote.totalVotesCast, 0);
 });
 
-test('public projection hides vote breakdown until close and omits solution, token and guest keys', () => {
+test('stable live alias follows the newest public session without exposing host capability', () => {
   const store = new ArenaStore();
-  const created = store.create();
-  store.vote(created.id, 'private-guest-hash', 'hard', requestId(10));
+  const first = store.create('quick');
+  assert.equal(store.publicSnapshot('live').id, first.id);
+  assert.equal(JSON.stringify(store.publicSnapshot('live')).includes(first.hostToken), false);
+  const second = store.create('endurance');
+  const live = store.publicSnapshot('live');
+  assert.equal(live.id, second.id);
+  assert.equal(live.preset, null);
+  failure(() => store.hostSnapshot('live', first.hostToken), 'NOT_AUTHORIZED');
+});
+
+test('Extreme supply is approved, unique, bounded and fails closed on unapproved input', () => {
+  const supply = loadExtremeSupply();
+  assert.equal(supply.length, 16);
+  assert.ok(Object.values(PRESETS).every(mode => mode.difficulty === 'Extreme'));
+  assert.equal(new Set(supply.map(puzzle => puzzle.givens)).size, 16);
+  assert.notEqual(puzzleForRound(0).givens, puzzleForRound(1).givens);
+  failure(() => puzzleForRound(16), 'EXTREME_SUPPLY_EXHAUSTED');
+  const directory = mkdtempSync(join(tmpdir(), 'arena-unapproved-'));
+  try {
+    const path = join(directory, 'supply.json');
+    writeFileSync(path, JSON.stringify({ tier: 'Extreme', puzzles: [{ givens: '0'.repeat(81) }] }));
+    assert.throws(() => loadExtremeSupply(path), /Unapproved/);
+    assert.throws(() => loadExtremeSupply(join(directory, 'missing')), /unavailable/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('disconnected guests expire and cannot satisfy the participation requirement', () => {
+  let now = 1000; const store = new ArenaStore({ now: () => now }); const created = store.create();
+  prepareVote(store, created); now += 20_000;
+  const ready = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(ready.participantCount, 0);
+  assert.equal(ready.participationSatisfied, false);
+  failure(() => store.start(created.id, created.hostToken, ready.version, requestId(6)), 'PARTICIPATION_REQUIRED');
+});
+
+test('configured participant minimum is enforced using connected voters', () => {
+  let now = 1_000; const store = new ArenaStore({ now: () => now, minParticipants: 2 });
+  const created = store.create(); prepareVote(store, created, 'first');
+  store.join(created.id, 'second'); now += 20_000; store.join(created.id, 'first'); store.join(created.id, 'second');
+  let ready = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(ready.participationRequired, 2); assert.equal(ready.participationSatisfied, false);
+  failure(() => store.start(created.id, created.hostToken, ready.version, requestId(7)), 'PARTICIPATION_REQUIRED');
+  store.openVoting(created.id, created.hostToken, ready.version);
+  store.vote(created.id, 'first', 'quick', requestId(8)); store.vote(created.id, 'second', 'standard', requestId(9));
+  now += 20_000; store.join(created.id, 'first'); store.join(created.id, 'second'); ready = store.hostSnapshot(created.id, created.hostToken);
+  assert.equal(ready.participationSatisfied, true); assert.equal(store.start(created.id, created.hostToken, ready.version, requestId(10)).status, 'PLAYING');
+});
+
+test('public projection hides vote breakdown and private capabilities', () => {
+  const store = new ArenaStore(); const created = store.create();
+  prepareVote(store, created, 'private-guest-hash', 'endurance');
   const open = store.publicSnapshot(created.id);
   assert.equal(open.presetVote.results, null);
   assert.equal(open.presetVote.totalVotesCast, 1);
   assert.equal(JSON.stringify(open).includes(puzzleForRound(0).solution), false);
   assert.equal(JSON.stringify(open).includes(created.hostToken), false);
   assert.equal(JSON.stringify(open).includes('private-guest-hash'), false);
-  assert.equal('hostHash' in open, false);
-  assert.equal('notes' in open, false);
 });
 
 test('full solution is validated and a qualifying pre-deadline solve wins across processing delay', () => {
   let now = 10_000;
-  const store = new ArenaStore({ now: () => now, presetVoteMs: 0 });
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
   const created = store.create();
   const started = startRound(store, created);
   failure(() => store.solve(created.id, created.hostToken, { solution: Array(81).fill(1), expectedVersion: started.version, requestId: requestId(12) }), 'SOLUTION_INCORRECT');
   now = started.deadline + 1;
   const won = store.solve(created.id, created.hostToken, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: started.version, requestId: requestId(13) }, started.deadline - 1);
-  assert.equal(won.status, 'FINISHED');
+  assert.equal(won.status, 'RESULT');
   assert.deepEqual(won.result, { winner: 'host', reason: 'SOLVED' });
 });
 
 test('timeout wins at the deadline; a solve received at or after deadline cannot win', () => {
   let now = 50_000;
-  const store = new ArenaStore({ now: () => now, presetVoteMs: 0 });
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
   const created = store.create();
   const started = startRound(store, created);
   now = started.deadline;
@@ -85,7 +147,7 @@ test('timeout wins at the deadline; a solve received at or after deadline cannot
 
 test('deadline polling waits for an earlier-ingress solve request still reading its body', async () => {
   let now = 100_000;
-  const store = new ArenaStore({ now: () => now, presetVoteMs: 0 });
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
   const created = store.create();
   const started = startRound(store, created);
   let responseResolve;
@@ -155,7 +217,7 @@ async function openPartialSolve(base, created, body = '{"solution":') {
 
 test('aborted partial solve releases its ticket and allows deadline resolution', async () => {
   let now = 120_000;
-  const store = new ArenaStore({ now: () => now, presetVoteMs: 0 });
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
   const created = store.create();
   const started = startRound(store, created);
   await withServer(async base => {
@@ -171,7 +233,7 @@ test('aborted partial solve releases its ticket and allows deadline resolution',
 
 test('body-read timeout releases an incomplete solve ticket', async () => {
   let now = 140_000;
-  const store = new ArenaStore({ now: () => now, presetVoteMs: 0 });
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
   const created = store.create();
   const started = startRound(store, created);
   await withServer(async base => {
@@ -190,12 +252,12 @@ test('rematch links a fresh session and puzzle while preserving the finished res
   now += 20_000;
   const started = startRound(store, created);
   const won = store.solve(created.id, created.hostToken, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: started.version, requestId: requestId(15) });
-  const next = store.rematch(created.id, created.hostToken, won.version, 'medium', requestId(16));
-  assert.equal(store.publicSnapshot(next.id).status, 'PRESET_VOTE');
+  const next = store.rematch(created.id, created.hostToken, won.version, 'standard', requestId(16));
+  assert.equal(store.publicSnapshot(next.id).status, 'CREATED');
   assert.equal(store.publicSnapshot(next.id).priorSessionId, created.id);
   assert.notEqual(puzzleForRound(1).givens, puzzleForRound(0).givens);
   assert.equal(store.publicSnapshot(created.id).result.winner, 'host');
-  assert.equal(store.rematch(created.id, created.hostToken, won.version, 'medium', requestId(16)).id, next.id);
+  assert.equal(store.rematch(created.id, created.hostToken, won.version, 'standard', requestId(16)).id, next.id);
   failure(() => store.start(next.id, created.hostToken, next.version, requestId(17)), 'NOT_AUTHORIZED');
 });
 
@@ -225,7 +287,7 @@ test('HTTP lifecycle: host capability cookie, guest vote, start, solve, refresh,
   await withServer(async base => {
     const host = jarFetch(base);
     const guest = jarFetch(base);
-    const created = await host('/api/arena/sessions', { defaultPreset: 'easy' });
+    const created = await host('/api/arena/sessions', { defaultPreset: 'quick' });
     assert.equal(created.status, 201);
     assert.equal('hostToken' in created.body, false);
     assert.equal(created.body.hostUrl, `/host/${created.body.id}`);
@@ -234,25 +296,29 @@ test('HTTP lifecycle: host capability cookie, guest vote, start, solve, refresh,
     assert.equal(publicOpen.status, 200);
     const deniedHostView = await guest(`/api/arena/sessions/${id}/host`);
     assert.equal(deniedHostView.status, 403);
-    const voted = await guest(`/api/arena/sessions/${id}/votes`, { preset: 'medium', requestId: requestId(20) });
+    await guest(`/api/arena/sessions/${id}/join`, {});
+    const lobby = await host(`/api/arena/sessions/${id}/host`);
+    await host(`/api/arena/sessions/${id}/open-voting`, { expectedVersion: lobby.body.version });
+    const voted = await guest(`/api/arena/sessions/${id}/votes`, { preset: 'standard', requestId: requestId(20) });
     assert.equal(voted.status, 200);
     now += 20_000;
+    await guest(`/api/arena/sessions/${id}/join`, {});
     const hostState = await host(`/api/arena/sessions/${id}/host`);
     assert.equal(hostState.status, 200);
     const started = await host(`/api/arena/sessions/${id}/start`, { expectedVersion: hostState.body.version, requestId: requestId(21) });
-    assert.equal(started.body.preset, 'medium');
+    assert.equal(started.body.preset, 'standard');
     const guestPlaying = await guest(`/api/arena/sessions/${id}`);
     assert.equal(guestPlaying.body.status, 'PLAYING');
     assert.equal('solution' in guestPlaying.body.puzzle, false);
     const won = await host(`/api/arena/sessions/${id}/solve`, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: started.body.version, requestId: requestId(22) });
     assert.deepEqual(won.body.result, { winner: 'host', reason: 'SOLVED' });
     const refreshed = await guest(`/api/arena/sessions/${id}`);
-    assert.equal(refreshed.body.status, 'FINISHED');
+    assert.equal(refreshed.body.status, 'RESULT');
     assert.deepEqual(refreshed.body.result, { winner: 'host', reason: 'SOLVED' });
-    const next = await host(`/api/arena/sessions/${id}/rematch`, { expectedVersion: won.body.version, defaultPreset: 'easy', requestId: requestId(23) });
+    const next = await host(`/api/arena/sessions/${id}/rematch`, { expectedVersion: won.body.version, defaultPreset: 'quick', requestId: requestId(23) });
     assert.equal(next.status, 201);
     assert.notEqual(next.body.id, id);
-    assert.equal((await host(`/api/arena/sessions/${next.body.id}/host`)).body.status, 'PRESET_VOTE');
+    assert.equal((await host(`/api/arena/sessions/${next.body.id}/host`)).body.status, 'CREATED');
   }, new ArenaStore({ now: () => now }));
 });
 
@@ -281,57 +347,112 @@ test('guest vote endpoint enforces per-browser rate limits', async () => {
   await withServer(async base => {
     const host = jarFetch(base);
     const guest = jarFetch(base);
-    const created = await host('/api/arena/sessions', { defaultPreset: 'easy' });
-    await guest(`/api/arena/sessions/${created.body.id}`);
+    const created = await host('/api/arena/sessions', { defaultPreset: 'quick' });
+    await guest(`/api/arena/sessions/${created.body.id}/join`, {});
+    const lobby = await host(`/api/arena/sessions/${created.body.id}/host`);
+    await host(`/api/arena/sessions/${created.body.id}/open-voting`, { expectedVersion: lobby.body.version });
     let last;
     for (let i = 0; i < 11; i += 1) {
-      last = await guest(`/api/arena/sessions/${created.body.id}/votes`, { preset: 'easy', requestId: requestId(100 + i) });
+      last = await guest(`/api/arena/sessions/${created.body.id}/votes`, { preset: 'quick', requestId: requestId(100 + i) });
     }
     assert.equal(last.status, 429);
     assert.equal(last.body.error, 'RATE_LIMITED');
   });
 });
 
+test('three browser identities can sustain normal five-second heartbeats without sharing a rate bucket', async () => {
+  let now = 0;
+  await withServer(async base => {
+    const host = jarFetch(base);
+    const guests = [jarFetch(base), jarFetch(base), jarFetch(base)];
+    const created = await host('/api/arena/sessions', { defaultPreset: 'quick' });
+    const id = created.body.id;
 
-test('host cannot end the fixed preset ballot early', () => {
-  let now = 70_000;
-  const store = new ArenaStore({ now: () => now });
-  const created = store.create();
-  const ballotOpen = store.hostSnapshot(created.id, created.hostToken);
-  const startButton = { disabled: false };
-  updateStartButton(startButton, ballotOpen);
-  assert.equal(startButton.disabled, true);
-  failure(() => store.start(created.id, created.hostToken, created.version, requestId(200)), 'BALLOT_OPEN');
-  assert.equal(store.publicSnapshot(created.id).status, 'PRESET_VOTE');
-  now += 20_000;
-  const ready = store.hostSnapshot(created.id, created.hostToken);
-  assert.equal(ready.status, 'READY');
-  updateStartButton(startButton, ready);
-  assert.equal(startButton.disabled, false);
-  const version = ready.version;
-  assert.equal(store.start(created.id, created.hostToken, version, requestId(201)).status, 'PLAYING');
+    // The client joins immediately, then once every five seconds: 12 joins per
+    // browser per minute, or 36/minute for three local browser contexts.
+    for (let beat = 0; beat < 12; beat += 1) {
+      now = beat * 5_000;
+      for (const guest of guests) {
+        const response = await guest(`/api/arena/sessions/${id}/join`, {});
+        assert.equal(response.status, 200);
+      }
+    }
+    const lobby = await host(`/api/arena/sessions/${id}/host`);
+    assert.equal(lobby.body.participantCount, 3);
+    const voting = await host(`/api/arena/sessions/${id}/open-voting`, { expectedVersion: lobby.body.version });
+    assert.equal(voting.status, 200);
+    for (const [index, guest] of guests.entries()) {
+      const response = await guest(`/api/arena/sessions/${id}/votes`, { preset: index === 1 ? 'standard' : 'quick', requestId: requestId(300 + index) });
+      assert.equal(response.status, 200);
+    }
+    // A vote replacement is still one vote because browser identity is the
+    // server-side guest cookie hash, not the number of open pages.
+    const changed = await guests[0](`/api/arena/sessions/${id}/votes`, { preset: 'standard', requestId: requestId(304) });
+    assert.equal(changed.status, 200);
+    assert.equal((await host(`/api/arena/sessions/${id}/host`)).body.presetVote.totalVotesCast, 3);
+  }, new ArenaStore({ now: () => now, presetVoteMs: 120_000 }), { now: () => now });
+});
+
+test('guest presence heartbeat remains rate-limited per browser identity', async () => {
+  let now = 0;
+  await withServer(async base => {
+    const host = jarFetch(base);
+    const guest = jarFetch(base);
+    const created = await host('/api/arena/sessions', { defaultPreset: 'quick' });
+    let last;
+    for (let i = 0; i < 16; i += 1) last = await guest(`/api/arena/sessions/${created.body.id}/join`, {});
+    assert.equal(last.status, 429);
+    assert.equal(last.body.error, 'RATE_LIMITED');
+  }, new ArenaStore({ now: () => now }), { now: () => now });
+});
+
+test('a snapshot-minted guest cookie still requires an IP-limited first join', async () => {
+  let now = 0;
+  await withServer(async base => {
+    const host = jarFetch(base);
+    const created = await host('/api/arena/sessions', { defaultPreset: 'quick' });
+    const guests = Array.from({ length: 30 }, () => jarFetch(base));
+    // GET may set an arena_guest cookie, but it must not establish a new
+    // identity that can bypass the 30/minute shared-IP registration guard.
+    for (const guest of guests) assert.equal((await guest(`/api/arena/sessions/${created.body.id}`)).status, 200);
+    let last;
+    for (const guest of guests) last = await guest(`/api/arena/sessions/${created.body.id}/join`, {});
+    assert.equal(last.status, 429); // Create + 29 distinct first joins = 30.
+    assert.equal(last.body.error, 'RATE_LIMITED');
+  }, new ArenaStore({ now: () => now }), { now: () => now });
+});
+
+
+test('host cannot end the fixed time-mode ballot early', () => {
+  let now = 70_000; const store = new ArenaStore({ now: () => now }); const created = store.create();
+  prepareVote(store, created); const open = store.hostSnapshot(created.id, created.hostToken);
+  const button = { disabled: false }; updateStartButton(button, open); assert.equal(button.disabled, true);
+  failure(() => store.start(created.id, created.hostToken, open.version, requestId(200)), 'BALLOT_OPEN');
+  now += 20_000; store.join(created.id, 'test-guest'); const ready = store.hostSnapshot(created.id, created.hostToken);
+  updateStartButton(button, ready); assert.equal(button.disabled, false);
+  assert.equal(store.start(created.id, created.hostToken, ready.version, requestId(201)).status, 'PLAYING');
 });
 
 test('host Start control is disabled until authoritative state is READY', () => {
   const button = { disabled: false };
   updateStartButton(button, null);
   assert.equal(button.disabled, true);
-  updateStartButton(button, { status: 'PRESET_VOTE', canControl: true, preset: null, presetVote: { totalVotesCast: 0 } });
+  updateStartButton(button, { status: 'VOTING', canControl: true, preset: null, presetVote: { totalVotesCast: 0 } });
   assert.equal(button.disabled, true);
-  updateStartButton(button, { status: 'PRESET_VOTE', canControl: true, preset: 'easy' });
+  updateStartButton(button, { status: 'VOTING', canControl: true, preset: 'quick' });
   assert.equal(button.disabled, true);
-  updateStartButton(button, { status: 'READY', canControl: true, preset: 'medium' });
+  updateStartButton(button, { status: 'READY', canControl: true, preset: 'standard', participationSatisfied: true });
   assert.equal(button.disabled, false);
-  updateStartButton(button, { status: 'READY', canControl: false, preset: 'medium' });
+  updateStartButton(button, { status: 'READY', canControl: false, preset: 'standard' });
   assert.equal(button.disabled, true);
-  updateStartButton(button, { status: 'FINISHED', canControl: true, preset: 'medium' });
+  updateStartButton(button, { status: 'RESULT', canControl: true, preset: 'standard' });
   assert.equal(button.disabled, true);
 });
 
 test('older snapshots cannot revert PLAYING or enable Start; session changes reset the version guard', () => {
   const expectedSessionId = 'session-current';
-  const playing = { id: expectedSessionId, version: 5, status: 'PLAYING', canControl: true, preset: 'easy' };
-  const staleReady = { id: expectedSessionId, version: 4, status: 'READY', canControl: true, preset: 'easy' };
+  const playing = { id: expectedSessionId, version: 5, status: 'PLAYING', canControl: true, preset: 'quick' };
+  const staleReady = { id: expectedSessionId, version: 4, status: 'READY', canControl: true, preset: 'quick' };
   let current = acceptSnapshot(null, playing, expectedSessionId);
   const startButton = { disabled: true };
   updateStartButton(startButton, current);
@@ -344,7 +465,7 @@ test('older snapshots cannot revert PLAYING or enable Start; session changes res
   assert.equal(startButton.disabled, true);
 
   const nextSessionId = 'session-next';
-  const nextReady = { id: nextSessionId, version: 1, status: 'READY', canControl: true, preset: 'medium' };
+  const nextReady = { id: nextSessionId, version: 1, status: 'READY', canControl: true, preset: 'standard', participationSatisfied: true };
   current = acceptSnapshot(current, nextReady, nextSessionId);
   assert.equal(current.id, nextSessionId);
   assert.equal(current.status, 'READY');
@@ -354,6 +475,13 @@ test('older snapshots cannot revert PLAYING or enable Start; session changes res
   assert.equal(current, nextReady, 'a delayed response from the prior session is ignored');
 });
 
+test('live overlay accepts the server-resolved current session ID', () => {
+  const current = acceptSnapshot(null, { id: 'resolved-session', sessionSequence: 2, version: 1, status: 'PLAYING' }, 'live');
+  assert.equal(current.id, 'resolved-session');
+  const stale = acceptSnapshot(current, { id: 'older-session', sessionSequence: 1, version: 99, status: 'READY' }, 'live');
+  assert.equal(stale, current, 'an alias response from another session cannot replace the current view');
+});
+
 test('rematch is idempotent per finished session even with a fresh requestId', () => {
   let now = 80_000;
   const store = new ArenaStore({ now: () => now });
@@ -361,8 +489,8 @@ test('rematch is idempotent per finished session even with a fresh requestId', (
   now += 20_000;
   const started = startRound(store, created);
   const won = store.solve(created.id, created.hostToken, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: started.version, requestId: requestId(40) });
-  const first = store.rematch(created.id, created.hostToken, won.version, 'easy', requestId(41));
-  const second = store.rematch(created.id, created.hostToken, won.version, 'easy', requestId(42));
+  const first = store.rematch(created.id, created.hostToken, won.version, 'quick', requestId(41));
+  const second = store.rematch(created.id, created.hostToken, won.version, 'quick', requestId(42));
   assert.equal(second.id, first.id);
   assert.equal(store.sessions.size, 2);
 });
@@ -372,7 +500,7 @@ test('prune evicts idle sessions and their idempotency keys but keeps touched on
   const store = new ArenaStore({ now: () => now, sessionTtlMs: 1000 });
   const idle = store.create();
   const live = store.create();
-  store.vote(idle.id, 'guest-a', 'easy', requestId(50));
+  prepareVote(store, idle, 'guest-a');
   now = 900; store.publicSnapshot(live.id);
   now = 1500;
   assert.equal(store.prune(), 1);

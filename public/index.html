@@ -25,27 +25,30 @@
     <p id="banner" class="notice">Local pilot. Guests join with a browser cookie; the cookie represents a browser, not a person. Session data is held in memory and clears when this server stops.</p>
     <section id="home">
       <p>Create a local host session. The host control capability stays in this browser as an HttpOnly cookie.</p>
-      <label for="defaultPreset">Host default if no one votes:</label>
-      <select id="defaultPreset"><option value="easy">Easy Sprint — 180 seconds</option><option value="medium">Medium Match — 300 seconds</option><option value="hard">Hard Survival — 480 seconds</option></select>
+      <p>All rounds use approved Extreme Sudoku puzzles.</p>
+      <label for="defaultPreset">Host default time mode:</label>
+      <select id="defaultPreset"><option value="quick">Quick — 180 seconds</option><option value="standard">Standard — 300 seconds</option><option value="endurance">Endurance — 480 seconds</option></select>
       <button id="create">Create Arena</button>
     </section>
     <section id="session" class="hidden">
       <p class="status" id="status"></p>
       <p id="timer"></p>
       <p id="preset"></p>
+      <p id="presence" aria-live="polite"></p>
       <div id="links" class="links"></div>
       <div id="guest" class="hidden">
-        <p>You're in the crowd. No account needed. You may change your vote until the ballot closes.</p>
+        <p id="guestConfirmation" role="status">Connecting to the crowd…</p>
         <form id="voteForm"></form>
         <p id="voteStatus"></p>
       </div>
       <div id="host" class="hidden">
         <p id="hostHint"></p>
+        <button id="openVoting" class="hidden">Open voting</button>
         <button id="start" class="hidden" disabled>Start round</button>
-        <div id="board" class="board" aria-label="Sudoku board"></div>
         <button id="solve" class="hidden">Submit full solution</button>
         <button id="rematch" class="hidden">Run it back</button>
       </div>
+      <div id="board" class="board hidden" aria-label="Sudoku board"></div>
       <div id="result" class="notice hidden"></div>
     </section>
     <p id="error" role="alert"></p>

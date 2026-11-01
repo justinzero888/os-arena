@@ -9,6 +9,7 @@ const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions';
 const CHAT_MESSAGES_URL = 'https://api.twitch.tv/helix/chat/messages';
 const MAX_SEEN_MESSAGE_IDS = 1_000;
 const MIN_REPLY_INTERVAL_MS = 5_000;
+const ARENA_STATUS_TIMEOUT_MS = 5_000;
 
 export class TwitchConnectivityError extends Error {
   constructor(message, code = 'TWITCH_CONNECTIVITY_ERROR') {
@@ -66,14 +67,58 @@ export function loadConfig(env = process.env) {
     );
   }
 
+  const statusUrl = String(env.ARENA_STATUS_URL ?? '').trim();
+  if (statusUrl) {
+    let parsed;
+    try { parsed = new URL(statusUrl); } catch { parsed = null; }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.hash) {
+      throw new TwitchConnectivityError(
+        'ARENA_STATUS_URL must be an http(s) URL without credentials or fragments.',
+        'CONFIG_INVALID_STATUS_URL',
+      );
+    }
+  }
+
   return Object.freeze({
     clientId: String(env.TWITCH_CLIENT_ID).trim(),
     userAccessToken: String(env.TWITCH_USER_ACCESS_TOKEN).trim(),
     botUserId,
     channelUserId,
     sendEnabled,
+    statusUrl,
     arenaEnabled: false,
   });
+}
+
+export async function fetchArenaStatus(config, fetchImpl = fetch) {
+  if (!config.statusUrl) return { live: false, text: 'Orbace Arena is not currently live.' };
+  let response;
+  try {
+    response = await fetchImpl(config.statusUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(ARENA_STATUS_TIMEOUT_MS),
+    });
+  } catch {
+    return { live: false, text: 'Orbace Arena is not currently live.' };
+  }
+  if (!response || response.ok === false || (Number.isFinite(response.status) && (response.status < 200 || response.status >= 300))) {
+    return { live: false, text: 'Orbace Arena is not currently live.' };
+  }
+  let snapshot;
+  try { snapshot = await response.json(); } catch { return { live: false, text: 'Orbace Arena is not currently live.' }; }
+  const status = typeof snapshot?.status === 'string' ? snapshot.status : '';
+  if (status !== 'PLAYING') return { live: false, text: 'Orbace Arena is not currently live.' };
+  const selectedPreset = typeof snapshot?.preset === 'object'
+    ? snapshot.preset
+    : Array.isArray(snapshot?.presets)
+      ? snapshot.presets.find(preset => preset?.id === snapshot.preset)
+      : null;
+  const mode = typeof selectedPreset?.name === 'string' ? selectedPreset.name : 'Arena';
+  const difficulty = typeof selectedPreset?.difficulty === 'string' ? selectedPreset.difficulty : 'Extreme';
+  const seconds = Number.isFinite(snapshot?.secondsRemaining) ? Math.max(0, Math.floor(snapshot.secondsRemaining)) : null;
+  const remaining = seconds === null ? '' : ` · ${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')} remaining`;
+  return { live: true, text: `Orbace Arena LIVE — ${mode} · ${difficulty}${remaining}` };
 }
 
 async function safeJson(response) {
@@ -235,6 +280,7 @@ export async function sendChatMessage(config, message, fetchImpl = fetch) {
 export function createChatMessageProcessor({
   config,
   sendMessage = (message) => sendChatMessage(config, message),
+  arenaStatus = () => fetchArenaStatus(config),
   logger = console,
   now = Date.now,
   cooldownMs = MIN_REPLY_INTERVAL_MS,
@@ -259,7 +305,8 @@ export function createChatMessageProcessor({
       }))
       : [];
     const broadcasterMatchesConfiguredChannel = event.broadcaster_user_id === config.channelUserId;
-    const matcherAccepts = typeof text === 'string' && text.trim() === 'Hey Guys';
+    const normalizedText = typeof text === 'string' ? text.trim() : '';
+    const matcherAccepts = normalizedText === 'Hey Guys' || normalizedText === '!arena';
     logger.info(JSON.stringify({
       'event.message.text': text,
       'event.message.fragments': fragments,
@@ -301,12 +348,13 @@ export function createChatMessageProcessor({
     }
     lastSendAttempt = currentTime;
     try {
-      const result = await sendMessage('VoHiYo');
+      const reply = normalizedText === '!arena' ? (await arenaStatus()).text : 'VoHiYo';
+      const result = await sendMessage(reply);
       if (!result?.sent) {
         logger.warn('Twitch did not confirm that VoHiYo was sent.');
         return { handled: true, reason: 'not-sent' };
       }
-      logger.info(`Twitch confirmed VoHiYo submission${result.messageId ? ` (message id=${result.messageId})` : ''}.`);
+      logger.info(`Twitch confirmed ${normalizedText === '!arena' ? '!arena status' : 'VoHiYo'} submission${result.messageId ? ` (message id=${result.messageId})` : ''}.`);
       return { handled: true, reason: 'sent' };
     } catch (error) {
       const message = error instanceof TwitchConnectivityError

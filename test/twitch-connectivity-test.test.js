@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createChatMessageProcessor,
   createChatMessageSubscription,
+  fetchArenaStatus,
   loadConfig,
   sendChatMessage,
   startConnectivityTest,
@@ -88,6 +89,56 @@ test('processor matches Hey Guys exactly after trimming whitespace', async () =>
   const process = createChatMessageProcessor({ config, sendMessage: async (message) => { sent.push(message); return { sent: true }; }, logger: quietLogger(), now: () => 10_000 });
   assert.equal((await process(notification({ text: '  Hey Guys \n' }))).reason, 'sent');
   assert.deepEqual(sent, ['VoHiYo']);
+});
+
+test('!arena sends only a safe public status projection', async () => {
+  const config = loadConfig(validEnv({
+    TWITCH_TEST_SEND_ENABLED: 'true',
+    TWITCH_TEST_SEND_CONFIRM_CHANNEL_ID: '200',
+    ARENA_STATUS_URL: 'http://127.0.0.1:4183/api/arena/sessions/demo',
+  }));
+  const sent = [];
+  const process = createChatMessageProcessor({
+    config,
+    arenaStatus: async () => ({ live: true, text: 'Orbace Arena LIVE — Quick · Extreme · 03:00 remaining' }),
+    sendMessage: async (message) => { sent.push(message); return { sent: true }; },
+    logger: quietLogger(),
+  });
+  assert.equal((await process(notification({ text: '!arena' }))).reason, 'sent');
+  assert.deepEqual(sent, ['Orbace Arena LIVE — Quick · Extreme · 03:00 remaining']);
+});
+
+test('!arena returns a safe inactive response when no status URL is configured', async () => {
+  const config = loadConfig(validEnv({
+    TWITCH_TEST_SEND_ENABLED: 'true',
+    TWITCH_TEST_SEND_CONFIRM_CHANNEL_ID: '200',
+  }));
+  const sent = [];
+  const process = createChatMessageProcessor({ config, sendMessage: async (message) => { sent.push(message); return { sent: true }; }, logger: quietLogger() });
+  assert.equal((await process(notification({ text: '!arena' }))).reason, 'sent');
+  assert.deepEqual(sent, ['Orbace Arena is not currently live.']);
+});
+
+test('Arena status formatter fails closed and never exposes private fields', async () => {
+  const config = loadConfig(validEnv({ ARENA_STATUS_URL: 'http://arena.test/status' }));
+  const live = await fetchArenaStatus(config, async () => mockResponse(200, {
+    status: 'PLAYING',
+    preset: 'standard',
+    presets: [
+      { id: 'quick', name: 'Quick', difficulty: 'Extreme' },
+      { id: 'standard', name: 'Standard', difficulty: 'Extreme' },
+    ],
+    secondsRemaining: 252,
+    puzzle: { id: 'private-id', solution: 'private-solution' },
+  }));
+  assert.deepEqual(live, { live: true, text: 'Orbace Arena LIVE — Standard · Extreme · 04:12 remaining' });
+  const inactive = await fetchArenaStatus(config, async () => mockResponse(503, {}));
+  assert.deepEqual(inactive, { live: false, text: 'Orbace Arena is not currently live.' });
+});
+
+test('invalid Arena status URL is rejected safely', () => {
+  assert.throws(() => loadConfig(validEnv({ ARENA_STATUS_URL: 'file:///tmp/status' })), /ARENA_STATUS_URL/);
+  assert.throws(() => loadConfig(validEnv({ ARENA_STATUS_URL: 'https://user:pass@example.test/status' })), /ARENA_STATUS_URL/);
 });
 
 test('other messages do not trigger and matching is case-sensitive', async () => {

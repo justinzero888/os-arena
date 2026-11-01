@@ -12,3 +12,6 @@ coverage/
 # Local tooling
 .DS_Store
 *.log
+
+# Owner-validated local Extreme supply (private puzzle data)
+.arena-extreme-supply.json

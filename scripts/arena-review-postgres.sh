@@ -36,7 +36,7 @@ npx --no-install prisma migrate deploy 2>&1 | tee "$arena_evidence/migrations.lo
 # Inspect protection BEFORE the optional companion script: private tables
 # must already be protected by the Prisma migration's own transaction.
 psql -h 127.0.0.1 -p "$arena_pg_port" -U arena -d arena_app -v ON_ERROR_STOP=1 -Atc \
-  "SELECT relname || '|rls=' || relrowsecurity FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN ('arena_sessions','arena_rounds','arena_votes','arena_events','arena_solve_ingresses') ORDER BY relname; SELECT 'arena_policies=' || count(*) FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'arena_%'; SELECT 'migrations_applied=' || count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;" \
+  "SELECT relname || '|rls=' || relrowsecurity FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN ('arena_sessions','arena_rounds','arena_votes','arena_events','arena_solve_ingresses','arena_puzzle_supply') ORDER BY relname; SELECT 'arena_policies=' || count(*) FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'arena_%'; SELECT 'migrations_applied=' || count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;" \
   | tee "$arena_evidence/rls-before-companion.log"
 psql -h 127.0.0.1 -p "$arena_pg_port" -U arena -d arena_app -v ON_ERROR_STOP=1 \
   -f "$arena_repo/infra/supabase/migrations/019_arena_pilot.sql" >"$arena_evidence/rls-companion.log"
