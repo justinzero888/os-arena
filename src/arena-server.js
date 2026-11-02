@@ -80,7 +80,7 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
           res.setHeader('Set-Cookie', `${cookieName}=${encodeURIComponent(created.hostToken)}; HttpOnly; SameSite=Strict; Path=/api/arena/sessions/${created.id}${req.socket.encrypted ? '; Secure' : ''}`);
           return json(res, 201, { id: created.id, version: created.version, hostUrl: `/host/${created.id}`, joinUrl: `/join/${created.id}`, overlayUrl: `/overlay/${created.id}` });
         }
-        const match = url.pathname.match(/^\/api\/arena\/sessions\/([A-Za-z0-9_-]+)(?:\/(host|join|open-voting|votes|start|solve|rematch))?$/);
+        const match = url.pathname.match(/^\/api\/arena\/sessions\/([A-Za-z0-9_-]+)(?:\/(host|join|open-voting|votes|start|board|solve|rematch))?$/);
         if (!match) return json(res, 404, { error: 'NOT_FOUND' });
         const [, id, action] = match;
         if (req.method === 'GET' && !action) {
@@ -132,6 +132,7 @@ export function createArenaServer({ enabled = process.env.ARENA_ENABLED === 'tru
         }
         const token = cookies[`arena_host_${id}`];
         if (action === 'start') return json(res, 200, store.start(id, token, body.expectedVersion, body.requestId));
+        if (action === 'board') return json(res, 200, store.updateBoard(id, token, body));
         if (action === 'solve') return json(res, 200, store.solve(id, token, body, ingressAt));
         if (action === 'rematch') {
           const created = store.rematch(id, token, body.expectedVersion, body.defaultPreset || 'quick', body.requestId);

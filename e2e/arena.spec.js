@@ -153,6 +153,11 @@ test('three isolated guests and an overlay recover refreshes without normal-pilo
       await expect(candidate.locator('#board .cell')).toHaveCount(81);
     }));
 
+    const firstEditable = page.locator('input.cell').first();
+    const firstIndex = Number(await firstEditable.getAttribute('data-index'));
+    await firstEditable.fill(String(solution[firstIndex]));
+    await Promise.all([...guestPages, overlay].map(candidate => expect(candidate.locator(`#board .cell[data-index="${firstIndex}"]`)).toHaveText(String(solution[firstIndex]), { timeout: 5_000 })));
+
     const playingSnapshots = await Promise.all([page, ...guestPages, overlay].map(candidate => candidate.evaluate(async id => {
       const response = await fetch(`/api/arena/sessions/${id}`, { cache: 'no-store' });
       return response.json();

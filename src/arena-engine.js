@@ -53,6 +53,7 @@ export class ArenaStore {
     const session = {
       id, sessionSequence: ++this.nextSessionSequence, hostHash: hash(hostToken), status: 'CREATED', defaultPreset, preset: null, guests: new Map(),
       presetResults: null, votes: new Map(), puzzle, round, priorSessionId,
+      board: puzzle.givens,
       createdAt: this.now(), touchedAt: this.now(), ballotDeadline: null,
       roundDeadline: null, winner: null, resultReason: null, version: 1, pendingSolves: new Map(), nextSession: null,
     };
@@ -147,7 +148,7 @@ export class ArenaStore {
       presetVote: s.status === 'VOTING'
         ? { closesAt: s.ballotDeadline, totalVotesCast: s.votes.size, results: null }
         : { closesAt: s.ballotDeadline, totalVotesCast: s.votes.size, results: s.presetResults },
-      puzzle: s.status === 'PLAYING' || s.status === 'RESULT' ? { givens: s.puzzle.givens } : null,
+      puzzle: s.status === 'PLAYING' || s.status === 'RESULT' ? { givens: s.puzzle.givens, board: s.board } : null,
       deadline: s.roundDeadline, serverNow: now,
       secondsRemaining: s.status === 'PLAYING' ? Math.max(0, Math.ceil((s.roundDeadline - now) / 1000)) : null,
       result: s.status === 'RESULT' ? { winner: s.winner, reason: s.resultReason } : null,
@@ -158,6 +159,22 @@ export class ArenaStore {
   hostSnapshot(id, token) {
     const s = this.#session(id); this.#requireHost(s, token);
     return { ...this.publicSnapshot(id), canControl: true, round: s.round };
+  }
+
+  updateBoard(id, token, { values, expectedVersion }) {
+    const s = this.#session(id); this.#requireHost(s, token);
+    if (s.status !== 'PLAYING') throw new ArenaError(409, 'INVALID_TRANSITION');
+    if (!Number.isInteger(expectedVersion) || expectedVersion !== s.version) throw new ArenaError(409, 'STALE_VERSION');
+    if (!Array.isArray(values) || values.length !== 81 || !values.every(value => value === '' || /^[1-9]$/.test(String(value)))) {
+      throw new ArenaError(400, 'INVALID_BOARD');
+    }
+    const next = [...s.puzzle.givens];
+    values.forEach((value, index) => {
+      if (s.puzzle.givens[index] === '0' && value) next[index] = String(value);
+    });
+    s.board = next.join('');
+    s.version += 1;
+    return this.hostSnapshot(id, token);
   }
 
   vote(id, guestHash, choice, requestId) {

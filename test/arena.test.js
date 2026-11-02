@@ -122,6 +122,22 @@ test('public projection hides vote breakdown and private capabilities', () => {
   assert.equal(JSON.stringify(open).includes('private-guest-hash'), false);
 });
 
+test('host board progress is server-authoritative and safe in public snapshots', () => {
+  let now = 10_000;
+  const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
+  const created = store.create();
+  const started = startRound(store, created);
+  const emptyIndex = [...puzzleForRound(0).givens].findIndex(digit => digit === '0');
+  const values = Array(81).fill('');
+  values[emptyIndex] = '7';
+  const updated = store.updateBoard(created.id, created.hostToken, { values, expectedVersion: started.version });
+  assert.equal(updated.puzzle.board[emptyIndex], '7');
+  assert.equal(store.publicSnapshot(created.id).puzzle.board[emptyIndex], '7');
+  assert.equal(JSON.stringify(store.publicSnapshot(created.id)).includes(puzzleForRound(0).solution), false);
+  failure(() => store.updateBoard(created.id, 'wrong-token', { values, expectedVersion: updated.version }), 'NOT_AUTHORIZED');
+  failure(() => store.updateBoard(created.id, created.hostToken, { values: Array(80).fill(''), expectedVersion: updated.version }), 'INVALID_BOARD');
+});
+
 test('full solution is validated and a qualifying pre-deadline solve wins across processing delay', () => {
   let now = 10_000;
   const store = new ArenaStore({ now: () => now, presetVoteMs: 1 });
@@ -310,7 +326,13 @@ test('HTTP lifecycle: host capability cookie, guest vote, start, solve, refresh,
     const guestPlaying = await guest(`/api/arena/sessions/${id}`);
     assert.equal(guestPlaying.body.status, 'PLAYING');
     assert.equal('solution' in guestPlaying.body.puzzle, false);
-    const won = await host(`/api/arena/sessions/${id}/solve`, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: started.body.version, requestId: requestId(22) });
+    const emptyIndex = [...puzzleForRound(0).givens].findIndex(digit => digit === '0');
+    const values = Array(81).fill(''); values[emptyIndex] = '7';
+    const board = await host(`/api/arena/sessions/${id}/board`, { values, expectedVersion: started.body.version });
+    assert.equal(board.status, 200);
+    const guestBoard = await guest(`/api/arena/sessions/${id}`);
+    assert.equal(guestBoard.body.puzzle.board[emptyIndex], '7');
+    const won = await host(`/api/arena/sessions/${id}/solve`, { solution: validGrid(puzzleForRound(0).solution), expectedVersion: board.body.version, requestId: requestId(22) });
     assert.deepEqual(won.body.result, { winner: 'host', reason: 'SOLVED' });
     const refreshed = await guest(`/api/arena/sessions/${id}`);
     assert.equal(refreshed.body.status, 'RESULT');
